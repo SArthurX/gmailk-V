@@ -1,6 +1,4 @@
-
-host-tools
-host-tools/
+main
 
 *.o
 
