@@ -51,7 +51,6 @@ gmailk-V
   - `TDLHandler_Init()`: 初始化 TDL，加載人臉檢測模型
   - `TDLHandler_DetectFace()`: 執行人臉檢測
   - `TDLHandler_DrawFaceRect()`: 在畫面上繪製人臉框
-  - `TDLHandler_DumpVpssFrame()`: 調試用，保存畫面到文件
   - `TDLHandler_ThreadRoutine()`: TDL 線程主函數
   - `TDLHandler_Cleanup()`: 清理 TDL 資源
 

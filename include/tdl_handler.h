@@ -1,6 +1,7 @@
 #ifndef TDL_HANDLER_H
 #define TDL_HANDLER_H
 
+#include "button_handler.h"
 extern "C" {
 #include <cvi_comm.h>
 }
@@ -11,6 +12,7 @@ typedef struct {
     cvitdl_handle_t tdlHandle;
     cvitdl_service_handle_t serviceHandle;
     const char *modelPath;
+    ButtonHandler_t *buttonHandler;
 } TDLHandler_t;
 
 CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath);
@@ -28,6 +30,8 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
 
 void *TDLHandler_ThreadRoutine(void *pHandle);
 
-CVI_S32 TDLHandler_DumpVpssFrame(const char *filepath, VIDEO_FRAME_INFO_S *frame);
+void TDLHandler_SetButtonHandler(TDLHandler_t *pstHandler, ButtonHandler_t *buttonHandler);
+
+CVI_S32 TDLHandler_CapturePhoto(VIDEO_FRAME_INFO_S *pstFrame, const char *filepath);
 
 #endif // TDL_HANDLER_H

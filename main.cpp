@@ -9,6 +9,8 @@
 #include "system_init.h"
 #include "tdl_handler.h"
 #include "venc_handler.h"
+#include "button_handler.h"
+
 
 static void SampleHandleSig(CVI_S32 signo) {
   signal(SIGINT, SIG_IGN);
@@ -50,22 +52,41 @@ int main(int argc, char *argv[]) {
     return -1;
   }
 
+  // Initialize button handler (button pin 21, LED pin 25)
+  ButtonHandler_t stButtonHandler;
+  s32Ret = ButtonHandler_Init(&stButtonHandler, 21, 25);
+  if (s32Ret != 0) {
+    std::cerr << "Button handler initialization failed!" << std::endl;
+    TDLHandler_Cleanup(&stTDLHandler);
+    SystemInit_Cleanup(&stMWContext);
+    SharedData_Cleanup();
+    return -1;
+  }
+  
+  // link button handler to TDL handler
+  TDLHandler_SetButtonHandler(&stTDLHandler, &stButtonHandler);
+
   VENCHandler_t stVencArgs;
   stVencArgs.pstMWContext = &stMWContext;
   stVencArgs.pstTDLHandler = &stTDLHandler;
 
-  pthread_t stVencThread, stTDLThread;
+  pthread_t stVencThread, stTDLThread, stButtonThread;
   pthread_create(&stVencThread, nullptr, VENCHandler_ThreadRoutine, &stVencArgs);
   pthread_create(&stTDLThread, nullptr, TDLHandler_ThreadRoutine, &stTDLHandler);
+  pthread_create(&stButtonThread, nullptr, ButtonHandler_ThreadRoutine, &stButtonHandler);
 
   std::cout << "=== Face Detection Application Started ===" << std::endl;
+  std::cout << "Press button (GPIO 21) to capture photo" << std::endl;
+  std::cout << "LED (GPIO 25) indicates button press" << std::endl;
   std::cout << "Press Ctrl+C to stop..." << std::endl;
 
   pthread_join(stVencThread, nullptr);
   pthread_join(stTDLThread, nullptr);
+  pthread_join(stButtonThread, nullptr);
 
   std::cout << "=== Cleaning up resources ===" << std::endl;
 
+  ButtonHandler_Cleanup(&stButtonHandler);
   TDLHandler_Cleanup(&stTDLHandler);
   SystemInit_Cleanup(&stMWContext);
   SharedData_Cleanup();
