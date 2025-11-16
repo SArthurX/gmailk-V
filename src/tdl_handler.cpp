@@ -3,10 +3,12 @@
 #include <iostream>
 #include <cstring>
 #include <sys/time.h>
+#include <time.h>
 
 extern "C" {
 #include <cvi_sys.h>
 #include "middleware_utils.h"
+#include "button_handler.h"
 }
 
 CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath) {
@@ -17,6 +19,7 @@ CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath) {
     
     std::memset(pstHandler, 0, sizeof(TDLHandler_t));
     pstHandler->modelPath = modelPath;
+    pstHandler->buttonHandler = nullptr;
     
     // Create TDL handle and assign VPSS Grp1 Device 0 to TDL SDK
     CVI_S32 s32Ret = CVI_TDL_CreateHandle2(&pstHandler->tdlHandle, 1, 0);
@@ -94,56 +97,45 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
                                         pstFrame, false, CVI_TDL_Service_GetDefaultBrush());
 }
 
-CVI_S32 TDLHandler_DumpVpssFrame(const char *filepath, VIDEO_FRAME_INFO_S *frame) {
-    VIDEO_FRAME_S *pstVFSrc = &frame->stVFrame;
-    int channels = 1;
-    int num_pixels = 1;
-    
-    switch (pstVFSrc->enPixelFormat) {
-        case PIXEL_FORMAT_YUV_400:
-            channels = 1;
-            break;
-        case PIXEL_FORMAT_RGB_888_PLANAR:
-            channels = 3;
-            break;
-        case PIXEL_FORMAT_RGB_888:
-            channels = 1;
-            num_pixels = 3;
-            break;
-        case PIXEL_FORMAT_NV21:
-            channels = 2;
-            break;
-        default:
-            std::cerr << "Unsupported conversion type: " << pstVFSrc->enPixelFormat << std::endl;
-            return CVI_FAILURE;
+
+void TDLHandler_SetButtonHandler(TDLHandler_t *pstHandler, ButtonHandler_t *buttonHandler) {
+    if (pstHandler) {
+        pstHandler->buttonHandler = buttonHandler;
     }
-    
-    FILE *fp = fopen(filepath, "wb");
-    if (fp == nullptr) {
-        std::cerr << "Failed to open: " << filepath << std::endl;
+}
+
+CVI_S32 TDLHandler_CapturePhoto(VIDEO_FRAME_INFO_S *pstFrame, const char *filepath) {
+    if (!pstFrame || !filepath) {
+        std::cerr << "Invalid parameters for capture" << std::endl;
         return CVI_FAILURE;
     }
     
-    uint32_t width = pstVFSrc->u32Width;
-    uint32_t height = pstVFSrc->u32Height;
-    fwrite(&width, sizeof(uint32_t), 1, fp);
-    fwrite(&height, sizeof(uint32_t), 1, fp);
-    uint32_t pix_format = (uint32_t)pstVFSrc->enPixelFormat;
-    fwrite(&pix_format, sizeof(pix_format), 1, fp);
-    
-    for (int c = 0; c < channels; c++) {
-        uint8_t *ptr_plane = pstVFSrc->pu8VirAddr[c];
-        if (width * num_pixels == pstVFSrc->u32Stride[c]) {
-            fwrite(pstVFSrc->pu8VirAddr[c], pstVFSrc->u32Stride[c] * height, 1, fp);
-        } else {
-            for (uint32_t r = 0; r < height; r++) {
-                fwrite(ptr_plane, width * num_pixels, 1, fp);
-                ptr_plane += pstVFSrc->u32Stride[c];
-            }
-        }
+    bool bNeedUnmap = false;
+    if (pstFrame->stVFrame.pu8VirAddr[0] == NULL) {
+        pstFrame->stVFrame.pu8VirAddr[0] = (CVI_U8 *)CVI_SYS_Mmap(
+            pstFrame->stVFrame.u64PhyAddr[0], pstFrame->stVFrame.u32Length[0]);
+        pstFrame->stVFrame.pu8VirAddr[1] = (CVI_U8 *)CVI_SYS_Mmap(
+            pstFrame->stVFrame.u64PhyAddr[1], pstFrame->stVFrame.u32Length[1]);
+        bNeedUnmap = true;
     }
-    fclose(fp);
-    return CVI_SUCCESS;
+    
+    CVI_SYS_IonFlushCache(pstFrame->stVFrame.u64PhyAddr[0], 
+                          pstFrame->stVFrame.pu8VirAddr[0], 
+                          pstFrame->stVFrame.u32Length[0]);
+    CVI_SYS_IonFlushCache(pstFrame->stVFrame.u64PhyAddr[1], 
+                          pstFrame->stVFrame.pu8VirAddr[1], 
+                          pstFrame->stVFrame.u32Length[1]);
+    
+    CVI_S32 ret = CVI_TDL_DumpVpssFrame(filepath, pstFrame);
+    
+    if (bNeedUnmap) {
+        CVI_SYS_Munmap((void *)pstFrame->stVFrame.pu8VirAddr[0], pstFrame->stVFrame.u32Length[0])
+        CVI_SYS_Munmap((void *)pstFrame->stVFrame.pu8VirAddr[1], pstFrame->stVFrame.u32Length[1]);
+        pstFrame->stVFrame.pu8VirAddr[0] = NULL;
+        pstFrame->stVFrame.pu8VirAddr[1] = NULL;
+    }
+    
+    return ret;
 }
 
 void *TDLHandler_ThreadRoutine(void *pHandle) {
@@ -161,6 +153,42 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
         s32Ret = CVI_VPSS_GetChnFrame(0, VPSS_CHN1, &stFrame, 2000);
         
         if (s32Ret == CVI_SUCCESS) {
+            if (pstHandler->buttonHandler) {
+                ButtonPressType_t pressType = ButtonHandler_GetPressType(pstHandler->buttonHandler);
+                
+                if (pressType == BUTTON_PRESS_SHORT) {
+                    time_t now = time(NULL);
+                    struct tm *t = localtime(&now);
+                    char filename[256];
+                    snprintf(filename, sizeof(filename), 
+                            "capture_%04d%02d%02d_%02d%02d%02d.bin",
+                            t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+                            t->tm_hour, t->tm_min, t->tm_sec);
+                    
+                    std::cout << "=== Short Press: Capturing Photo ===" << std::endl;
+                    std::cout << "Filename: " << filename << std::endl;
+                    
+                    s32Ret = TDLHandler_CapturePhoto(&stFrame, filename);
+                    if (s32Ret == CVI_SUCCESS) {
+                        std::cout << "Photo captured successfully!" << std::endl;
+                        std::cout << "Size: " << stFrame.stVFrame.u32Width << "x" 
+                                  << stFrame.stVFrame.u32Height << std::endl;
+                    } else {
+                        std::cerr << "Failed to capture photo" << std::endl;
+                    }
+                    std::cout << "=====================================" << std::endl;
+                    
+                    ButtonHandler_ClearPressType(pstHandler->buttonHandler);
+                } 
+                else if (pressType == BUTTON_PRESS_LONG) {
+                    std::cout << "=== Long Press: Special Function ===" << std::endl;
+                    std::cout << "Long press detected - executing special function" << std::endl;
+                    std::cout << "====================================" << std::endl;
+                    
+                    ButtonHandler_ClearPressType(pstHandler->buttonHandler);
+                }
+            }
+            
             static bool bFirstFrame = true;
             if (bFirstFrame) {
                 std::cout << "=== Frame Information ===" << std::endl;
@@ -169,33 +197,6 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
                 std::cout << "Pixel Format: " << stFrame.stVFrame.enPixelFormat << std::endl;
                 std::cout << "Stride[0]: " << stFrame.stVFrame.u32Stride[0] << std::endl;
                 std::cout << "=========================" << std::endl;
-                
-                bool bNeedUnmap = false;
-                if (stFrame.stVFrame.pu8VirAddr[0] == NULL) {
-                    stFrame.stVFrame.pu8VirAddr[0] = (CVI_U8 *)CVI_SYS_Mmap(
-                        stFrame.stVFrame.u64PhyAddr[0], stFrame.stVFrame.u32Length[0]);
-                    stFrame.stVFrame.pu8VirAddr[1] = (CVI_U8 *)CVI_SYS_Mmap(
-                        stFrame.stVFrame.u64PhyAddr[1], stFrame.stVFrame.u32Length[1]);
-                    bNeedUnmap = true;
-                }
-                
-                CVI_SYS_IonFlushCache(stFrame.stVFrame.u64PhyAddr[0], 
-                                      stFrame.stVFrame.pu8VirAddr[0], 
-                                      stFrame.stVFrame.u32Length[0]);
-                CVI_SYS_IonFlushCache(stFrame.stVFrame.u64PhyAddr[1], 
-                                      stFrame.stVFrame.pu8VirAddr[1], 
-                                      stFrame.stVFrame.u32Length[1]);
-                
-                TDLHandler_DumpVpssFrame("first_frame.bin", &stFrame);
-                std::cout << "First frame dumped to first_frame.bin" << std::endl;
-                
-                if (bNeedUnmap) {
-                    CVI_SYS_Munmap((void *)stFrame.stVFrame.pu8VirAddr[0], stFrame.stVFrame.u32Length[0]);
-                    CVI_SYS_Munmap((void *)stFrame.stVFrame.pu8VirAddr[1], stFrame.stVFrame.u32Length[1]);
-                    stFrame.stVFrame.pu8VirAddr[0] = NULL;
-                    stFrame.stVFrame.pu8VirAddr[1] = NULL;
-                }
-                
                 bFirstFrame = false;
             }
         }

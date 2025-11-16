@@ -28,12 +28,16 @@ LDFLAGS += -lcvi_tdl
 LDFLAGS += -lopencv_core -lopencv_imgproc -lopencv_imgcodecs
 LDFLAGS += -lcvikernel -lcvimath -lcviruntime
 LDFLAGS += -lcvi_rtsp
+LDFLAGS += -lwiringx
 
 COMMON_SRC = $(COMMON_DIR)/middleware_utils.c
 COMMON_OBJ = $(COMMON_SRC:.c=.o)
 
 CPP_SOURCES = $(wildcard src/*.cpp)
 CPP_OBJS = $(CPP_SOURCES:.cpp=.o)
+
+C_SOURCES = $(wildcard src/*.c)
+C_OBJS = $(C_SOURCES:.c=.o)
 
 SOURCE = main.cpp
 OBJS = $(SOURCE:.cpp=.o)
@@ -42,8 +46,8 @@ OBJS = $(SOURCE:.cpp=.o)
 
 all: $(TARGET)
 
-$(TARGET): $(OBJS) $(CPP_OBJS) $(COMMON_OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $(COMMON_OBJ) $(CPP_OBJS) $(OBJS) $(LDFLAGS)
+$(TARGET): $(OBJS) $(CPP_OBJS) $(C_OBJS) $(COMMON_OBJ)
+	$(CXX) $(CXXFLAGS) -o $@ $(COMMON_OBJ) $(CPP_OBJS) $(C_OBJS) $(OBJS) $(LDFLAGS)
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -o $@ -c $<
@@ -55,5 +59,5 @@ $(TARGET): $(OBJS) $(CPP_OBJS) $(COMMON_OBJ)
 clean:
 	@rm -rf *.o src/*.o
 	@rm -rf $(COMMON_OBJ)
-	@rm -rf $(CPP_OBJS) $(OBJS)
+	@rm -rf $(CPP_OBJS) $(C_OBJS) $(OBJS)
 	@rm -rf $(TARGET)
