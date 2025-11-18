@@ -129,7 +129,7 @@ CVI_S32 TDLHandler_CapturePhoto(VIDEO_FRAME_INFO_S *pstFrame, const char *filepa
     CVI_S32 ret = CVI_TDL_DumpVpssFrame(filepath, pstFrame);
     
     if (bNeedUnmap) {
-        CVI_SYS_Munmap((void *)pstFrame->stVFrame.pu8VirAddr[0], pstFrame->stVFrame.u32Length[0])
+        CVI_SYS_Munmap((void *)pstFrame->stVFrame.pu8VirAddr[0], pstFrame->stVFrame.u32Length[0]);
         CVI_SYS_Munmap((void *)pstFrame->stVFrame.pu8VirAddr[1], pstFrame->stVFrame.u32Length[1]);
         pstFrame->stVFrame.pu8VirAddr[0] = NULL;
         pstFrame->stVFrame.pu8VirAddr[1] = NULL;

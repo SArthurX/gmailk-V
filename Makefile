@@ -30,17 +30,19 @@ LDFLAGS += -lcvikernel -lcvimath -lcviruntime
 LDFLAGS += -lcvi_rtsp
 LDFLAGS += -lwiringx
 
+OBJ_DIR = obj
+
 COMMON_SRC = $(COMMON_DIR)/middleware_utils.c
 COMMON_OBJ = $(COMMON_SRC:.c=.o)
 
 CPP_SOURCES = $(wildcard src/*.cpp)
-CPP_OBJS = $(CPP_SOURCES:.cpp=.o)
+CPP_OBJS = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(CPP_SOURCES))
 
 C_SOURCES = $(wildcard src/*.c)
-C_OBJS = $(C_SOURCES:.c=.o)
+C_OBJS = $(patsubst %.c, $(OBJ_DIR)/%.o, $(C_SOURCES))
 
 SOURCE = main.cpp
-OBJS = $(SOURCE:.cpp=.o)
+OBJS = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCE))
 
 .PHONY: all clean
 
@@ -49,15 +51,16 @@ all: $(TARGET)
 $(TARGET): $(OBJS) $(CPP_OBJS) $(C_OBJS) $(COMMON_OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $(COMMON_OBJ) $(CPP_OBJS) $(C_OBJS) $(OBJS) $(LDFLAGS)
 
-%.o: %.cpp
+$(OBJ_DIR)/%.o: %.cpp
+	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -o $@ -c $<
 
-%.o: %.c
+$(OBJ_DIR)/%.o: %.c
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -o $@ -c $<
 
 .PHONY: clean
 clean:
-	@rm -rf *.o src/*.o
+	@rm -rf $(OBJ_DIR)
 	@rm -rf $(COMMON_OBJ)
-	@rm -rf $(CPP_OBJS) $(C_OBJS) $(OBJS)
 	@rm -rf $(TARGET)
