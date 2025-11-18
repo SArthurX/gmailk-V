@@ -92,9 +92,15 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
     if (!pstHandler || !pstFaceMeta || !pstFrame) {
         return CVI_FAILURE;
     }
+
+    cvtdl_service_brush_t brushi;
+    brushi.color.r = 255.;
+    brushi.color.g = 0.f;
+    brushi.color.b = 0.f;
+    brushi.size = 4;
     
     return CVI_TDL_Service_FaceDrawRect(pstHandler->serviceHandle, pstFaceMeta, 
-                                        pstFrame, false, CVI_TDL_Service_GetDefaultBrush());
+                                        pstFrame, false, brushi);
 }
 
 
@@ -109,32 +115,12 @@ CVI_S32 TDLHandler_CapturePhoto(VIDEO_FRAME_INFO_S *pstFrame, const char *filepa
         std::cerr << "Invalid parameters for capture" << std::endl;
         return CVI_FAILURE;
     }
-    
-    bool bNeedUnmap = false;
-    if (pstFrame->stVFrame.pu8VirAddr[0] == NULL) {
-        pstFrame->stVFrame.pu8VirAddr[0] = (CVI_U8 *)CVI_SYS_Mmap(
-            pstFrame->stVFrame.u64PhyAddr[0], pstFrame->stVFrame.u32Length[0]);
-        pstFrame->stVFrame.pu8VirAddr[1] = (CVI_U8 *)CVI_SYS_Mmap(
-            pstFrame->stVFrame.u64PhyAddr[1], pstFrame->stVFrame.u32Length[1]);
-        bNeedUnmap = true;
-    }
-    
-    CVI_SYS_IonFlushCache(pstFrame->stVFrame.u64PhyAddr[0], 
-                          pstFrame->stVFrame.pu8VirAddr[0], 
-                          pstFrame->stVFrame.u32Length[0]);
-    CVI_SYS_IonFlushCache(pstFrame->stVFrame.u64PhyAddr[1], 
-                          pstFrame->stVFrame.pu8VirAddr[1], 
-                          pstFrame->stVFrame.u32Length[1]);
-    
+
+    CVI_Mmap(pstFrame);
+        
     CVI_S32 ret = CVI_TDL_DumpVpssFrame(filepath, pstFrame);
     
-    if (bNeedUnmap) {
-        CVI_SYS_Munmap((void *)pstFrame->stVFrame.pu8VirAddr[0], pstFrame->stVFrame.u32Length[0]);
-        CVI_SYS_Munmap((void *)pstFrame->stVFrame.pu8VirAddr[1], pstFrame->stVFrame.u32Length[1]);
-        pstFrame->stVFrame.pu8VirAddr[0] = NULL;
-        pstFrame->stVFrame.pu8VirAddr[1] = NULL;
-    }
-    
+    CVI_Mmap(pstFrame, true);
     return ret;
 }
 

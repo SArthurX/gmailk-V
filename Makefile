@@ -49,7 +49,7 @@ OBJS = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(SOURCE))
 all: $(TARGET)
 
 $(TARGET): $(OBJS) $(CPP_OBJS) $(C_OBJS) $(COMMON_OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $(COMMON_OBJ) $(CPP_OBJS) $(C_OBJS) $(OBJS) $(LDFLAGS)
+	$(CXX) -o $@ $(COMMON_OBJ) $(CPP_OBJS) $(C_OBJS) $(OBJS) $(CXXFLAGS) $(LDFLAGS)
 
 $(OBJ_DIR)/%.o: %.cpp
 	@mkdir -p $(dir $@)

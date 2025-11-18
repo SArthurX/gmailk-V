@@ -34,4 +34,22 @@ void TDLHandler_SetButtonHandler(TDLHandler_t *pstHandler, ButtonHandler_t *butt
 
 CVI_S32 TDLHandler_CapturePhoto(VIDEO_FRAME_INFO_S *pstFrame, const char *filepath);
 
+static inline void CVI_Mmap(VIDEO_FRAME_INFO_S *pstFrame, bool unmap = false){
+    size_t image_size = pstFrame->stVFrame.u32Length[0] + pstFrame->stVFrame.u32Length[1] +
+                    pstFrame->stVFrame.u32Length[2];
+    if (!unmap) {
+        pstFrame->stVFrame.pu8VirAddr[0] =
+            (uint8_t *)CVI_SYS_Mmap(pstFrame->stVFrame.u64PhyAddr[0], image_size);
+        pstFrame->stVFrame.pu8VirAddr[1] =
+            pstFrame->stVFrame.pu8VirAddr[0] + pstFrame->stVFrame.u32Length[0];
+        pstFrame->stVFrame.pu8VirAddr[2] =
+            pstFrame->stVFrame.pu8VirAddr[1] + pstFrame->stVFrame.u32Length[1];
+    } else {
+        CVI_SYS_Munmap(pstFrame->stVFrame.pu8VirAddr[0], image_size);
+        pstFrame->stVFrame.pu8VirAddr[0] = NULL;
+        pstFrame->stVFrame.pu8VirAddr[1] = NULL;
+        pstFrame->stVFrame.pu8VirAddr[2] = NULL;
+    }
+}
+
 #endif // TDL_HANDLER_H
