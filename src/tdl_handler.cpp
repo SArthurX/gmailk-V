@@ -4,6 +4,8 @@
 #include <cstring>
 #include <sys/time.h>
 #include <time.h>
+#include <cmath>
+#include <cfloat>
 
 extern "C" {
 #include <cvi_sys.h>
@@ -93,14 +95,74 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
         return CVI_FAILURE;
     }
 
-    cvtdl_service_brush_t brushi;
-    brushi.color.r = 255.;
-    brushi.color.g = 0.f;
-    brushi.color.b = 0.f;
-    brushi.size = 4;
+    // 如果沒有檢測到人臉，直接返回
+    if (pstFaceMeta->size == 0) {
+        return CVI_SUCCESS;
+    }
+
+    // 計算畫面中心點
+    float frame_center_x = pstFrame->stVFrame.u32Width / 2.0f;
+    float frame_center_y = pstFrame->stVFrame.u32Height / 2.0f;
     
-    return CVI_TDL_Service_FaceDrawRect(pstHandler->serviceHandle, pstFaceMeta, 
-                                        pstFrame, false, brushi);
+    // 找出最接近畫面中心的人臉
+    int center_face_idx = -1;
+    float min_distance = FLT_MAX;
+    
+    for (uint32_t i = 0; i < pstFaceMeta->size; i++) {
+        // 計算人臉框的中心點
+        float face_center_x = (pstFaceMeta->info[i].bbox.x1 + pstFaceMeta->info[i].bbox.x2) / 2.0f;
+        float face_center_y = (pstFaceMeta->info[i].bbox.y1 + pstFaceMeta->info[i].bbox.y2) / 2.0f;
+        
+        // 計算人臉中心到畫面中心的距離
+        float dx = face_center_x - frame_center_x;
+        float dy = face_center_y - frame_center_y;
+        float distance = sqrt(dx * dx + dy * dy);
+        
+        if (distance < min_distance) {
+            min_distance = distance;
+            center_face_idx = i;
+        }
+    }
+    
+    // 分別繪製不同顏色的人臉框
+    CVI_S32 s32Ret = CVI_SUCCESS;
+    for (uint32_t i = 0; i < pstFaceMeta->size; i++) {
+        cvtdl_service_brush_t brush;
+        brush.size = 4;
+        
+        if ((int)i == center_face_idx) {
+            // 中心人臉用紅色
+            brush.color.r = 255.0f;
+            brush.color.g = 0.0f;
+            brush.color.b = 0.0f;
+        } else {
+            // 其他人臉用藍色
+            brush.color.r = 0.0f;
+            brush.color.g = 0.0f;
+            brush.color.b = 255.0f;
+        }
+        
+        // 創建單個人臉的臨時結構來繪製
+        cvtdl_face_t single_face = {0};
+        single_face.size = 1;
+        single_face.width = pstFaceMeta->width;
+        single_face.height = pstFaceMeta->height;
+        single_face.info = (cvtdl_face_info_t *)malloc(sizeof(cvtdl_face_info_t));
+        if (single_face.info) {
+            memcpy(single_face.info, &pstFaceMeta->info[i], sizeof(cvtdl_face_info_t));
+            
+            s32Ret = CVI_TDL_Service_FaceDrawRect(pstHandler->serviceHandle, &single_face, 
+                                                  pstFrame, false, brush);
+            
+            free(single_face.info);
+            
+            if (s32Ret != CVI_SUCCESS) {
+                return s32Ret;
+            }
+        }
+    }
+    
+    return s32Ret;
 }
 
 
