@@ -21,8 +21,7 @@ int ButtonHandler_Init(ButtonHandler_t *handler, int buttonPin, int ledPin) {
     handler->pressType = BUTTON_PRESS_NONE;
     handler->longPressThreshold = LONG_PRESS_THRESHOLD_US;
     
-    char platform[] = "milkv_duo256m";
-    if (wiringXSetup(platform, NULL) == -1) {
+    if (wiringXSetup("milkv_duo256m", NULL) == -1) {
         std::cerr << "Failed to init wiringX" << std::endl;
         wiringXGC();
         return -1;

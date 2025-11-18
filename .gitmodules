@@ -1,3 +1,6 @@
 [submodule "host-tools"]
 	path = host-tools
 	url = https://github.com/milkv-duo/host-tools.git
+[submodule "lib/opencv"]
+	path = lib/opencv
+	url = https://github.com/opencv/opencv.git
