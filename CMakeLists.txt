@@ -69,6 +69,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/include/tdl
     ${CMAKE_SOURCE_DIR}/common
     ${CMAKE_SOURCE_DIR}/src/3rdparty
+    ${CMAKE_SOURCE_DIR}/src/drivers/ssd1306
     ${OPENCV_INCLUDE_DIR}
     ${OPENCV_INCLUDE_DIR}/opencv4
     ${NCNN_INCLUDE_DIR}
@@ -80,6 +81,12 @@ set(COMMON_SOURCES
     common/middleware_utils.c
 )
 
+# SSD1306 OLED driver sources
+set(SSD1306_SOURCES
+    src/drivers/ssd1306/ssd1306.c
+    src/drivers/ssd1306/linux_i2c.c
+)
+
 file(GLOB CPP_SOURCES "src/*.cpp")
 file(GLOB C_SOURCES "src/*.c")
 
@@ -88,6 +95,7 @@ add_executable(main
     ${CPP_SOURCES}
     ${C_SOURCES}
     ${COMMON_SOURCES}
+    ${SSD1306_SOURCES}
 )
 
 # Link libraries

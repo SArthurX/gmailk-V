@@ -1,5 +1,6 @@
 #include "tdl_handler.h"
 #include "shared_data.h"
+#include "oled_handler.h"
 #include <iostream>
 #include <cstring>
 #include <sys/time.h>
@@ -22,6 +23,7 @@ CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath) {
     std::memset(pstHandler, 0, sizeof(TDLHandler_t));
     pstHandler->modelPath = modelPath;
     pstHandler->buttonHandler = nullptr;
+    pstHandler->oledHandler = nullptr;
     
     // Create TDL handle and assign VPSS Grp1 Device 0 to TDL SDK
     CVI_S32 s32Ret = CVI_TDL_CreateHandle2(&pstHandler->tdlHandle, 1, 0);
@@ -182,6 +184,12 @@ void TDLHandler_SetButtonHandler(TDLHandler_t *pstHandler, ButtonHandler_t *butt
     }
 }
 
+void TDLHandler_SetOLEDHandler(TDLHandler_t *pstHandler, OLEDHandler_t *oledHandler) {
+    if (pstHandler) {
+        pstHandler->oledHandler = oledHandler;
+    }
+}
+
 CVI_S32 TDLHandler_CapturePhoto(VIDEO_FRAME_INFO_S *pstFrame, const char *filepath) {
     if (!pstFrame || !filepath) {
         std::cerr << "Invalid parameters for capture" << std::endl;
@@ -324,6 +332,52 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
         }
         
         s_u32LastFaceSize = stFaceMeta.size;
+        
+        // 更新 OLED 顯示
+        if (pstHandler->oledHandler && pstHandler->oledHandler->initialized) {
+            // 準備 OLED 人臉框數據
+            OLEDFaceBox_t oled_faces[32]; // 最多支持 32 個人臉
+            uint32_t oled_face_count = std::min((uint32_t)stFaceMeta.size, (uint32_t)32);
+            
+            // 計算畫面中心點
+            float frame_center_x = stFrame.stVFrame.u32Width / 2.0f;
+            float frame_center_y = stFrame.stVFrame.u32Height / 2.0f;
+            float center_threshold = 150.0f; // 中心對準閾值
+            
+            // 找出最接近中心的人臉
+            int center_face_idx = -1;
+            float min_distance = FLT_MAX;
+            
+            for (uint32_t i = 0; i < oled_face_count; i++) {
+                oled_faces[i].x1 = stFaceMeta.info[i].bbox.x1;
+                oled_faces[i].y1 = stFaceMeta.info[i].bbox.y1;
+                oled_faces[i].x2 = stFaceMeta.info[i].bbox.x2;
+                oled_faces[i].y2 = stFaceMeta.info[i].bbox.y2;
+                oled_faces[i].score = stFaceMeta.info[i].bbox.score;
+                oled_faces[i].is_center = 0;
+                
+                // 計算人臉中心到畫面中心的距離
+                float face_center_x = (oled_faces[i].x1 + oled_faces[i].x2) / 2.0f;
+                float face_center_y = (oled_faces[i].y1 + oled_faces[i].y2) / 2.0f;
+                float dx = face_center_x - frame_center_x;
+                float dy = face_center_y - frame_center_y;
+                float distance = sqrt(dx * dx + dy * dy);
+                
+                if (distance < center_threshold && distance < min_distance) {
+                    min_distance = distance;
+                    center_face_idx = i;
+                }
+            }
+            
+            // 標記中心人臉
+            if (center_face_idx >= 0) {
+                oled_faces[center_face_idx].is_center = 1;
+            }
+            
+            // 更新 OLED 顯示
+            OLEDHandler_UpdateDisplay(pstHandler->oledHandler, oled_faces, 
+                                     oled_face_count, current_fps);
+        }
         
         // 更新全局人臉數據
         {
