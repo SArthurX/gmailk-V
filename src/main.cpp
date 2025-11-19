@@ -4,6 +4,8 @@
 #include <iostream>
 #include <signal.h>
 #include <pthread.h>
+#include <cstring>
+#include <string>
 
 #include "shared_data.h"
 #include "system_init.h"
@@ -23,10 +25,20 @@ static void SampleHandleSig(CVI_S32 signo) {
 }
 
 int main(int argc, char *argv[]) {
-  if (argc != 2) {
-    std::cout << "\nUsage: " << argv[0] << " SCRFDFACE_MODEL_PATH.\n\n"
-              << "\tSCRFDFACE_MODEL_PATH, path to scrfdface model.\n" << std::endl;
+  if (argc < 2) {
+    std::cout << "\nUsage: " << argv[0] << " SCRFDFACE_MODEL_PATH [-oled]\n\n"
+              << "\tSCRFDFACE_MODEL_PATH, path to scrfdface model.\n"
+              << "\t-oled, optional flag to enable OLED display (I2C-2).\n" << std::endl;
     return -1;
+  }
+
+  // Check for -oled flag
+  bool enable_oled = false;
+  for (int i = 2; i < argc; i++) {
+    if (std::string(argv[i]) == "-oled") {
+      enable_oled = true;
+      break;
+    }
   }
 
   signal(SIGINT, SampleHandleSig);
@@ -64,21 +76,28 @@ int main(int argc, char *argv[]) {
     return -1;
   }
   
-  // Initialize OLED handler (I2C device 2)
+  // Initialize OLED handler (I2C device 2) - optional
   OLEDHandler_t stOLEDHandler;
-  s32Ret = OLEDHandler_Init(&stOLEDHandler, 2);
-  if (s32Ret != 0) {
-    std::cerr << "OLED handler initialization failed!" << std::endl;
-    ButtonHandler_Cleanup(&stButtonHandler);
-    TDLHandler_Cleanup(&stTDLHandler);
-    SystemInit_Cleanup(&stMWContext);
-    SharedData_Cleanup();
-    return -1;
+  std::memset(&stOLEDHandler, 0, sizeof(OLEDHandler_t));
+  
+  if (enable_oled) {
+    std::cout << "Attempting to initialize OLED display..." << std::endl;
+    s32Ret = OLEDHandler_Init(&stOLEDHandler, 2);
+    if (s32Ret != 0) {
+      std::cerr << "Warning: OLED handler initialization failed!" << std::endl;
+      std::cerr << "Warning: OLED display will be disabled" << std::endl;
+    } else {
+      std::cout << "OLED display initialized successfully" << std::endl;
+    }
+  } else {
+    std::cout << "OLED display disabled (use -oled flag to enable)" << std::endl;
   }
   
   // link button handler and OLED handler to TDL handler
   TDLHandler_SetButtonHandler(&stTDLHandler, &stButtonHandler);
-  TDLHandler_SetOLEDHandler(&stTDLHandler, &stOLEDHandler);
+  if (stOLEDHandler.initialized) {
+    TDLHandler_SetOLEDHandler(&stTDLHandler, &stOLEDHandler);
+  }
 
   VENCHandler_t stVencArgs;
   stVencArgs.pstMWContext = &stMWContext;
@@ -92,7 +111,11 @@ int main(int argc, char *argv[]) {
   std::cout << "=== Face Detection Application Started ===" << std::endl;
   std::cout << "Press button (GPIO 21) to capture photo" << std::endl;
   std::cout << "LED (GPIO 25) indicates button press" << std::endl;
-  std::cout << "OLED display (I2C-2) shows face detection results" << std::endl;
+  if (stOLEDHandler.initialized) {
+    std::cout << "OLED display (I2C-2) shows face detection results" << std::endl;
+  } else {
+    std::cout << "OLED display disabled (not connected or initialization failed)" << std::endl;
+  }
   std::cout << "Press Ctrl+C to stop..." << std::endl;
 
   pthread_join(stVencThread, nullptr);
@@ -101,7 +124,9 @@ int main(int argc, char *argv[]) {
 
   std::cout << "=== Cleaning up resources ===" << std::endl;
 
-  OLEDHandler_Cleanup(&stOLEDHandler);
+  if (stOLEDHandler.initialized) {
+    OLEDHandler_Cleanup(&stOLEDHandler);
+  }
   ButtonHandler_Cleanup(&stButtonHandler);
   TDLHandler_Cleanup(&stTDLHandler);
   SystemInit_Cleanup(&stMWContext);
