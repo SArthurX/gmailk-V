@@ -4,3 +4,6 @@
 [submodule "tools/host-tools"]
 	path = tools/host-tools
 	url = https://github.com/milkv-duo/host-tools.git
+[submodule "lib/ncnn"]
+	path = lib/ncnn
+	url = https://github.com/Tencent/ncnn.git

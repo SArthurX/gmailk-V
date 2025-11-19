@@ -49,12 +49,28 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s")
 endif()
 
+# OpenCV and NCNN precompiled library paths
+set(OPENCV_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/opencv/build/install/lib")
+set(OPENCV_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/lib/opencv/build/install/include")
+set(NCNN_LIB_DIR "${CMAKE_SOURCE_DIR}/lib/ncnn/build/install/lib")
+set(NCNN_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/lib/ncnn/build/install/include")
+
+# Add library directories
+link_directories(
+    ${OPENCV_LIB_DIR}
+    ${NCNN_LIB_DIR}
+)
+
 # Include directories
 include_directories(
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/include/tdl
     ${CMAKE_SOURCE_DIR}/common
     ${CMAKE_SOURCE_DIR}/src/3rdparty
+    ${OPENCV_INCLUDE_DIR}
+    ${OPENCV_INCLUDE_DIR}/opencv4
+    ${NCNN_INCLUDE_DIR}
+    ${NCNN_INCLUDE_DIR}/ncnn
 )
 
 # Source files
@@ -112,6 +128,11 @@ target_link_libraries(main
     opencv_core
     opencv_imgproc
     opencv_imgcodecs
+    opencv_highgui
+    opencv_videoio
+    
+    # NCNN library
+    ncnn
     
     # CVI kernel libraries
     cvikernel
