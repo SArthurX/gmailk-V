@@ -64,6 +64,8 @@ link_directories(
 # Include directories
 include_directories(
     ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/include/system
+    ${CMAKE_SOURCE_DIR}/include/system/linux
     ${CMAKE_SOURCE_DIR}/include/tdl
     ${CMAKE_SOURCE_DIR}/common
     ${CMAKE_SOURCE_DIR}/src/3rdparty
@@ -81,11 +83,8 @@ set(COMMON_SOURCES
 file(GLOB CPP_SOURCES "src/*.cpp")
 file(GLOB C_SOURCES "src/*.c")
 
-set(MAIN_SOURCE main.cpp)
-
 # Create executable
 add_executable(main
-    ${MAIN_SOURCE}
     ${CPP_SOURCES}
     ${C_SOURCES}
     ${COMMON_SOURCES}
