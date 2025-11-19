@@ -1,0 +1,34 @@
+{
+    "models": {
+        "base_path": "./models",
+        "mtcnn": {
+            "det1_param": "det1.param",
+            "det1_bin": "det1.bin",
+            "det2_param": "det2.param",
+            "det2_bin": "det2.bin",
+            "det3_param": "det3.param",
+            "det3_bin": "det3.bin",
+            "det4_param": "det4.param",
+            "det4_bin": "det4.bin"
+        },
+        "arcface": {
+            "param": "mobilefacenet.param",
+            "bin": "mobilefacenet.bin"
+        }
+    },
+    "paths": {
+        "images": "./images",
+        "results": "./results",
+        "features": "./features",
+        "database": "./database"
+    },
+    "thresholds": {
+        "face_similarity": 0.6,
+        "detection_confidence": 0.8
+    },
+    "settings": {
+        "create_directories": false,
+        "save_detected_faces": false,
+        "save_detection_boxes": false
+    }
+}
