@@ -10,6 +10,7 @@
 #include "tdl_handler.h"
 #include "venc_handler.h"
 #include "button_handler.h"
+#include "oled_handler.h"
 
 
 static void SampleHandleSig(CVI_S32 signo) {
@@ -63,8 +64,21 @@ int main(int argc, char *argv[]) {
     return -1;
   }
   
-  // link button handler to TDL handler
+  // Initialize OLED handler (I2C device 2)
+  OLEDHandler_t stOLEDHandler;
+  s32Ret = OLEDHandler_Init(&stOLEDHandler, 2);
+  if (s32Ret != 0) {
+    std::cerr << "OLED handler initialization failed!" << std::endl;
+    ButtonHandler_Cleanup(&stButtonHandler);
+    TDLHandler_Cleanup(&stTDLHandler);
+    SystemInit_Cleanup(&stMWContext);
+    SharedData_Cleanup();
+    return -1;
+  }
+  
+  // link button handler and OLED handler to TDL handler
   TDLHandler_SetButtonHandler(&stTDLHandler, &stButtonHandler);
+  TDLHandler_SetOLEDHandler(&stTDLHandler, &stOLEDHandler);
 
   VENCHandler_t stVencArgs;
   stVencArgs.pstMWContext = &stMWContext;
@@ -78,6 +92,7 @@ int main(int argc, char *argv[]) {
   std::cout << "=== Face Detection Application Started ===" << std::endl;
   std::cout << "Press button (GPIO 21) to capture photo" << std::endl;
   std::cout << "LED (GPIO 25) indicates button press" << std::endl;
+  std::cout << "OLED display (I2C-2) shows face detection results" << std::endl;
   std::cout << "Press Ctrl+C to stop..." << std::endl;
 
   pthread_join(stVencThread, nullptr);
@@ -86,6 +101,7 @@ int main(int argc, char *argv[]) {
 
   std::cout << "=== Cleaning up resources ===" << std::endl;
 
+  OLEDHandler_Cleanup(&stOLEDHandler);
   ButtonHandler_Cleanup(&stButtonHandler);
   TDLHandler_Cleanup(&stTDLHandler);
   SystemInit_Cleanup(&stMWContext);
