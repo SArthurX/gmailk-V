@@ -202,10 +202,14 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
     TDLHandler_t *pstHandler = static_cast<TDLHandler_t *>(pHandle);
     VIDEO_FRAME_INFO_S stFrame;
     cvtdl_face_t stFaceMeta = {0};
-    struct timeval t0, t1;
-    unsigned long execution_time;
     CVI_S32 s32Ret;
     static uint32_t s_u32LastFaceSize = 0;
+    
+    struct timeval t0, t1 ,fps_t0, fps_t1;;
+    unsigned long execution_time;
+    gettimeofday(&fps_t0, NULL);
+    int frame_count = 0;
+    float current_fps = 0.0f;
     
     while (!g_bExit) {
         s32Ret = CVI_VPSS_GetChnFrame(0, VPSS_CHN1, &stFrame, 2000);
@@ -261,7 +265,7 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
         
         if (s32Ret != CVI_SUCCESS) {
             std::cerr << "CVI_VPSS_GetChnFrame failed with 0x" << std::hex << s32Ret << std::endl;
-            goto get_frame_failed;
+            break;
         }
         
         std::memset(&stFaceMeta, 0, sizeof(cvtdl_face_t));
@@ -273,15 +277,36 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
         
         if (s32Ret != CVI_TDL_SUCCESS) {
             std::cerr << "Inference failed, ret=0x" << std::hex << s32Ret << std::endl;
-            goto inf_error;
+            CVI_TDL_Free(&stFaceMeta);
+            CVI_VPSS_ReleaseChnFrame(0, 1, &stFrame);
+            if (s32Ret != CVI_SUCCESS) {
+                g_bExit = true;
+            }
+            continue;
         }
         
         execution_time = ((t1.tv_sec - t0.tv_sec) * 1000000 + t1.tv_usec - t0.tv_usec);
+        
+
+        frame_count++;
+        gettimeofday(&fps_t1, NULL);
+        unsigned long fps_elapsed = ((fps_t1.tv_sec - fps_t0.tv_sec) * 1000000 + fps_t1.tv_usec - fps_t0.tv_usec);
+        if (fps_elapsed >= 1000000) { // 1 second
+            current_fps = (float)frame_count * 1000000.0f / (float)fps_elapsed;
+            {
+                LOCK_FPS_MUTEX();
+                g_fCurrentFPS = current_fps;
+                UNLOCK_FPS_MUTEX();
+            }
+            frame_count = 0;
+            fps_t0 = fps_t1;
+        }
         
         if (stFaceMeta.size > 0) {
             std::cout << "=== Face Detection Results ===" << std::endl;
             std::cout << "Face count: " << stFaceMeta.size << std::endl;
             std::cout << "Inference time: " << (float)execution_time / 1000 << " ms" << std::endl;
+            std::cout << "FPS: " << current_fps << std::endl;
             std::cout << "Frame size: " << stFrame.stVFrame.u32Width << "x" 
                       << stFrame.stVFrame.u32Height << std::endl;
             
@@ -310,13 +335,8 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
             UNLOCK_RESULT_MUTEX();
         }
         
-    inf_error:
-        CVI_VPSS_ReleaseChnFrame(0, 1, &stFrame);
-    get_frame_failed:
         CVI_TDL_Free(&stFaceMeta);
-        if (s32Ret != CVI_SUCCESS) {
-            g_bExit = true;
-        }
+        CVI_VPSS_ReleaseChnFrame(0, 1, &stFrame);
     }
     
     std::cout << "Exit TDL thread" << std::endl;
