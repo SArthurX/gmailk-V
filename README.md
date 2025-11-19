@@ -1,158 +1,200 @@
-# Face Detection Application - Refactored
+# gmailk-V
 
-### 目錄結構
+[English](#english) | [中文](docs/lang/README_ch.md)
 
-```
-gmailk-V
-├── main.cpp                    # 主程序入口（簡化版）
-├── Makefile                    # 編譯配置
-├── include/                    # 頭文件目錄
-│   ├── shared_data.h          # 共享數據和全局變量
-│   ├── system_init.h          # 系統初始化
-│   ├── tdl_handler.h          # TDL（人臉檢測）處理
-│   └── venc_handler.h         # 視頻編碼和 RTSP 推流
-└── src/                       # 源文件目錄
-    ├── shared_data.cpp        # 共享數據實現
-    ├── system_init.cpp        # 系統初始化實現
-    ├── tdl_handler.cpp        # TDL 處理實現
-    └── venc_handler.cpp       # VENC 處理實現
-```
+---
 
-### 模組說明
+<a name="english"></a>
+## English
 
-#### 1. **shared_data** (共享數據模組)
-- **功能**: 管理線程間共享的全局數據
-- **內容**:
-  - `g_bExit`: 原子布爾變量，控制程序退出
-  - `g_stFaceMeta`: 全局人臉檢測結果
-  - `g_ResultMutex`: 保護共享數據的互斥鎖
-- **API**:
-  - `SharedData_Init()`: 初始化共享數據
-  - `SharedData_Cleanup()`: 清理共享數據
+### Overview
 
-#### 2. **system_init** (系統初始化模組)
-- **功能**: 處理所有底層系統初始化（VI/VPSS/VENC/RTSP）
-- **結構**:
-  - `SystemConfig_t`: 封裝系統配置參數
-- **API**:
-  - `SystemInit_GetSensorConfig()`: 獲取傳感器配置
-  - `SystemInit_SetupVBPool()`: 配置視頻緩衝池
-  - `SystemInit_SetupVPSS()`: 配置 VPSS（視頻處理子系統）
-  - `SystemInit_SetupVENC()`: 配置視頻編碼器
-  - `SystemInit_SetupRTSP()`: 配置 RTSP 服務
-  - `SystemInit_All()`: 一鍵完成所有初始化
-  - `SystemInit_Cleanup()`: 清理系統資源
+**gmailk-V** is a high-performance face detection application designed for CVITEK CV181X/CV180X RISC-V embedded platforms. It features real-time face detection, RTSP streaming, and a modular architecture optimized for embedded systems.
 
-#### 3. **tdl_handler** (TDL 處理模組)
-- **功能**: 封裝 TDL SDK 相關操作（人臉檢測）
-- **結構**:
-  - `TDLHandler_t`: TDL 處理器結構，包含 TDL handle 和 service handle
-- **API**:
-  - `TDLHandler_Init()`: 初始化 TDL，加載人臉檢測模型
-  - `TDLHandler_DetectFace()`: 執行人臉檢測
-  - `TDLHandler_DrawFaceRect()`: 在畫面上繪製人臉框
-  - `TDLHandler_ThreadRoutine()`: TDL 線程主函數
-  - `TDLHandler_Cleanup()`: 清理 TDL 資源
+### Features
 
-#### 4. **venc_handler** (視頻編碼處理模組)
-- **功能**: 處理視頻編碼和 RTSP 推流
-- **結構**:
-  - `VENCHandler_t`: VENC 處理器參數結構
-- **API**:
-  - `VENCHandler_SendFrameRTSP()`: 發送畫面到 RTSP
-  - `VENCHandler_ThreadRoutine()`: VENC 線程主函數
+- 🎯 **Real-time Face Detection** - Powered by CVITEK TDL SDK
+- 📹 **RTSP Streaming** - H.264 video encoding with live face detection overlay
+- 🔧 **Modular Architecture** - Clean separation of concerns for easy maintenance
+- 🚀 **Multi-threaded Design** - Separate threads for detection and encoding
+- 🔌 **OpenCV & NCNN Integration** - Support for custom image processing and neural networks
+- 💻 **RISC-V Optimized** - Built for CVITEK CV181X/CV180X platforms
 
-### 主程序流程 (main.cpp)
+### System Requirements
 
-重構後的 `main.cpp` 非常簡潔：
+- **Hardware**: CVITEK CV181X or CV180X SoC
+- **Toolchain**: RISC-V GCC cross-compiler (musl)
+- **Dependencies**: 
+  - CVITEK TDL SDK
+  - CVITEK Media SDK
+  - OpenCV
+  - NCNN
 
-```cpp
-1. 解析命令行參數（模型路徑）
-2. 設置信號處理
-3. 初始化共享數據
-4. 初始化系統（SystemInit_All）
-5. 初始化 TDL Handler
-6. 創建兩個線程：
-   - TDL 線程：負責人臉檢測
-   - VENC 線程：負責視頻編碼和推流
-7. 等待線程結束
-8. 清理所有資源
-```
-
-### 線程架構
+### Project Structure
 
 ```
-主線程 (main)
-├── TDL 線程 (TDLHandler_ThreadRoutine)
-│   ├── 從 VPSS CHN1 取得畫面
-│   ├── 執行人臉檢測
-│   └── 更新全局人臉檢測結果 (加鎖)
+gmailk-V/
+├── CMakeLists.txt          # CMake configuration
+├── build.sh                # Build script
+├── include/                # Header files
+│   ├── shared_data.h       # Shared data structures
+│   ├── system_init.h       # System initialization
+│   ├── tdl_handler.h       # TDL face detection handler
+│   ├── venc_handler.h      # Video encoding handler
+│   └── button_handler.h    # Button input handler
+├── src/                    # Source files
+│   ├── main.cpp            # Main entry point
+│   ├── shared_data.cpp
+│   ├── system_init.cpp
+│   ├── tdl_handler.cpp
+│   ├── venc_handler.cpp
+│   └── button_handler.cpp
+├── common/                 # Common utilities
+├── lib/                    # Third-party libraries
+│   ├── opencv/             # OpenCV library
+│   ├── ncnn/               # NCNN library
+│   ├── system/             # System libraries
+│   └── tdl/                # TDL libraries
+├── models/                 # Face detection models
+└── tools/                  # Build tools and scripts
+    ├── build_opencv.sh
+    └── build_ncnn.sh
+```
+
+### Building the Project
+
+#### Step 1: Build Third-party Libraries (First Time Only)
+
+```bash
+cd tools
+
+# Build OpenCV
+./build_opencv.sh
+
+# Build NCNN
+./build_ncnn.sh
+```
+
+#### Step 2: Build the Main Application
+
+```bash
+# Configure for CV181X (default)
+./build.sh
+
+# Or configure for CV180X
+./build.sh -c CV180X
+
+# Clean build
+./build.sh -c
+```
+
+The compiled binary will be located at: `build/main`
+
+### Running the Application
+
+```bash
+# Basic usage
+./build/main /path/to/face_detection_model.cvimodel
+
+# Example
+./build/main models/scrfd_det_face_432_768_INT8_cv181x.cvimodel
+```
+
+### RTSP Streaming
+
+After starting the application, you can view the video stream with face detection overlay:
+
+```bash
+# Using VLC
+vlc rtsp://<device-ip>:554/h264
+
+# Using ffplay
+ffplay rtsp://<device-ip>:554/h264
+```
+
+### Module Overview
+
+#### 1. **shared_data** - Shared Data Module
+Manages thread-safe shared data between detection and encoding threads.
+
+**Key Components:**
+- `g_bExit` - Atomic flag for graceful shutdown
+- `g_stFaceMeta` - Global face detection results
+- `g_ResultMutex` - Mutex for thread synchronization
+
+#### 2. **system_init** - System Initialization Module
+Handles low-level system initialization (VI/VPSS/VENC/RTSP).
+
+**Key Functions:**
+- `SystemInit_All()` - One-call initialization
+- `SystemInit_Cleanup()` - Resource cleanup
+
+#### 3. **tdl_handler** - TDL Detection Module
+Encapsulates CVITEK TDL SDK for face detection.
+
+**Key Functions:**
+- `TDLHandler_Init()` - Initialize TDL and load model
+- `TDLHandler_DetectFace()` - Perform face detection
+- `TDLHandler_ThreadRoutine()` - Detection thread main loop
+
+#### 4. **venc_handler** - Video Encoding Module
+Handles H.264 encoding and RTSP streaming.
+
+**Key Functions:**
+- `VENCHandler_SendFrameRTSP()` - Send frame to RTSP
+- `VENCHandler_ThreadRoutine()` - Encoding thread main loop
+
+### Threading Architecture
+
+```
+Main Thread
+├── TDL Thread (Face Detection)
+│   ├── Get frame from VPSS CHN1
+│   ├── Run face detection
+│   └── Update global face metadata (locked)
 │
-└── VENC 線程 (VENCHandler_ThreadRoutine)
-    ├── 從 VPSS CHN0 取得畫面
-    ├── 讀取全局人臉檢測結果 (加鎖)
-    ├── 在畫面上繪製人臉框
-    └── 推送到 RTSP
+└── VENC Thread (Video Encoding)
+    ├── Get frame from VPSS CHN0
+    ├── Read face metadata (locked)
+    ├── Draw face rectangles
+    └── Send to RTSP stream
 ```
 
-### C/C++ 混合編程處理
+### Configuration
 
-專案中使用了大量 C 函式庫，在各模組中妥善使用 `extern "C"` 包裝：
+Edit `config.json` for custom settings:
 
-```cpp
-// 在頭文件中
-extern "C" {
-#include <cvi_comm.h>
-#include "cvi_tdl.h"
+```json
+{
+  "chip": "CV181X",
+  "video": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30
+  },
+  "detection": {
+    "threshold": 0.5,
+    "model": "models/scrfd_det_face_432_768_INT8_cv181x.cvimodel"
+  }
 }
-
-// 在源文件中
-extern "C" {
-#include <sample_comm.h>
-#include "middleware_utils.h"
-}
 ```
 
-### 編譯
+### Troubleshooting
 
-```bash
-# 設置環境變量（根據您的芯片型號）
-source envsetup.sh
+**Cannot find OpenCV/NCNN libraries:**
+- Make sure to build the libraries first using the scripts in `tools/`
 
-# 編譯
-make clean
-make
-```
+**RTSP stream not accessible:**
+- Check firewall settings
+- Verify the device IP address
+- Ensure port 554 is not blocked
 
-### 運行
+### Contributing
 
-```bash
-./main /path/to/scrfdface_model.cvimodel
-```
+Contributions are welcome! Please feel free to submit issues or pull requests.
 
-### 後續擴展（人臉對比）
+### License
 
-重構後的架構為人臉對比功能預留了清晰的擴展路徑：
+See [LICENSE](LICENSE) file for details.
 
-1. **新增特徵提取模組** (`face_feature_extractor.h/cpp`)
-   - 加載人臉識別模型
-   - 提取人臉特徵向量
-
-2. **新增人臉數據庫模組** (`face_database.h/cpp`)
-   - 管理已註冊的人臉特徵
-   - 提供人臉特徵比對功能
-
-3. **修改 TDL Handler**
-   - 在檢測到人臉後，調用特徵提取
-   - 與數據庫中的特徵進行比對
-
-4. **修改 VENC Handler**
-   - 在畫面上標註人臉身份信息
-
-
-### 注意事項
-
-- 所有 C 函式庫的頭文件必須用 `extern "C"` 包裝
-- 線程間共享數據訪問必須加鎖
-- 資源清理順序：TDL → System → SharedData
-- 編譯時需要設置正確的 include 路徑（Makefile 已配置）
+---
