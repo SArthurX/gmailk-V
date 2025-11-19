@@ -116,6 +116,21 @@ void *VENCHandler_ThreadRoutine(void *pArgs) {
                 free(center_dot.info);
             }
         }
+
+        {
+            float fps_value = 0.0f;
+            {
+                LOCK_FPS_MUTEX();
+                fps_value = g_fCurrentFPS;
+                UNLOCK_FPS_MUTEX();
+            }
+            
+            char fps_text[64];
+            snprintf(fps_text, sizeof(fps_text), "FPS: %.1f", fps_value);
+            
+            // 繪製文字到畫面左上角
+            CVI_TDL_Service_ObjectWriteText(fps_text, 10, 30, &stFrame, 0.0f, 255.0f, 0.0f);
+        }
         
         // 發送畫面到 RTSP
         s32Ret = VENCHandler_SendFrameRTSP(&stFrame, pstHandler->pstMWContext);
