@@ -15,5 +15,10 @@ cscope.*
 ncscope.*
 .svim
 
+obj
+tmp/*
+test/*
+build
+
 __pycache__
 .vscode
