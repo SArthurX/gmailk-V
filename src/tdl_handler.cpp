@@ -1,17 +1,17 @@
-#include "tdl_handler.h"
-#include "shared_data.h"
-#include "draw_utils.h"
 #include <iostream>
 #include <cstring>
 #include <sys/time.h>
 #include <time.h>
 #include <cmath>
 #include <cfloat>
+#include "tdl_handler.h"
+#include "shared_data.h"
+#include "draw_utils.h"
+#include "button_handler.h"
 
 extern "C" {
 #include <cvi_sys.h>
 #include "middleware_utils.h"
-#include "button_handler.h"
 }
 
 CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath) {

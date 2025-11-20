@@ -1,13 +1,14 @@
-#include "system_init.h"
 #include <iostream>
 #include <cstring>
+#include "system_init.h"
+#include "sample_utils.h"
 
 extern "C" {
 #include <core/utils/vpss_helper.h>
 #include "vi_vo_utils.h"
 }
 
-#include "sample_utils.h"
+
 
 CVI_S32 SystemInit_GetSensorConfig(SystemConfig_t *pstConfig) {
     std::memset(&pstConfig->stMWConfig, 0, sizeof(pstConfig->stMWConfig));

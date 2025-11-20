@@ -1,5 +1,6 @@
-#include "shared_data.h"
 #include <cstring>
+#include "shared_data.h"
+
 
 std::atomic<bool> g_bExit(false);
 cvtdl_face_t g_stFaceMeta = {0};

@@ -1,8 +1,8 @@
+#include <iostream>
+#include <cstring>
 #include "venc_handler.h"
 #include "shared_data.h"
 #include "draw_utils.h"
-#include <iostream>
-#include <cstring>
 
 extern "C" {
 #include "middleware_utils.h"

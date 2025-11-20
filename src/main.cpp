@@ -4,7 +4,6 @@
 #include <iostream>
 #include <signal.h>
 #include <pthread.h>
-
 #include "shared_data.h"
 #include "system_init.h"
 #include "tdl_handler.h"
