@@ -1,5 +1,6 @@
 #include "tdl_handler.h"
 #include "shared_data.h"
+#include "draw_utils.h"
 #include <iostream>
 #include <cstring>
 #include <sys/time.h>
@@ -95,64 +96,50 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
         return CVI_FAILURE;
     }
 
-    // 如果沒有檢測到人臉，直接返回
+    // no face then return
     if (pstFaceMeta->size == 0) {
         return CVI_SUCCESS;
     }
 
-    // 計算畫面中心點
     float frame_center_x = pstFrame->stVFrame.u32Width / 2.0f;
     float frame_center_y = pstFrame->stVFrame.u32Height / 2.0f;
     
-    // 設定中心區域的閾值（像素）- 只有在這個範圍內的人臉才會被標記為紅色
-    float center_threshold = 80.0f; // 可以根據需求調整
+    float center_threshold = 80.0f; 
     
-    // 找出瞄準十字線對準的人臉（在閾值範圍內且最接近中心的）
+    // find the face closest to the center crosshair (within threshold)
     int center_face_idx = -1;
     float min_distance = FLT_MAX;
     
     for (uint32_t i = 0; i < pstFaceMeta->size; i++) {
-        // 檢查畫面中心點是否在人臉框內或附近
         float bbox_x1 = pstFaceMeta->info[i].bbox.x1;
         float bbox_y1 = pstFaceMeta->info[i].bbox.y1;
         float bbox_x2 = pstFaceMeta->info[i].bbox.x2;
         float bbox_y2 = pstFaceMeta->info[i].bbox.y2;
         
-        // 計算人臉框中心點
         float face_center_x = (bbox_x1 + bbox_x2) / 2.0f;
         float face_center_y = (bbox_y1 + bbox_y2) / 2.0f;
         
-        // 計算人臉中心到畫面中心的距離
         float dx = face_center_x - frame_center_x;
         float dy = face_center_y - frame_center_y;
         float distance = sqrt(dx * dx + dy * dy);
         
-        // 只有在閾值範圍內的人臉才考慮標記為紅色
+        // if in the threshold 
         if (distance < center_threshold && distance < min_distance) {
             min_distance = distance;
             center_face_idx = i;
         }
     }
     
-    // 分別繪製不同顏色的人臉框
+    
     CVI_S32 s32Ret = CVI_SUCCESS;
     for (uint32_t i = 0; i < pstFaceMeta->size; i++) {
         cvtdl_service_brush_t brush;
         brush.size = 4;
-        
-        if ((int)i == center_face_idx) {
-            // 中心人臉用紅色
-            brush.color.r = 255.0f;
-            brush.color.g = 0.0f;
-            brush.color.b = 0.0f;
-        } else {
-            // 其他人臉用藍色
-            brush.color.r = 0.0f;
-            brush.color.g = 0.0f;
-            brush.color.b = 255.0f;
-        }
-        
-        // 創建單個人臉的臨時結構來繪製
+        if ((int)i == center_face_idx) 
+            brush = BRUSH_RED;
+        else 
+            brush = BRUSH_BLUE;
+  
         cvtdl_face_t single_face = {0};
         single_face.size = 1;
         single_face.width = pstFaceMeta->width;
@@ -165,7 +152,6 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
                                                   pstFrame, false, brush);
             
             free(single_face.info);
-            
             if (s32Ret != CVI_SUCCESS) {
                 return s32Ret;
             }
