@@ -1,11 +1,7 @@
 #ifndef BUTTON_HANDLER_H
 #define BUTTON_HANDLER_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
 #include <wiringx.h>
-#include <stdbool.h>
 
 // Button press types
 typedef enum {
@@ -36,9 +32,5 @@ void ButtonHandler_ClearPressType(ButtonHandler_t *handler);
 
 // Button listening thread
 void *ButtonHandler_ThreadRoutine(void *pHandle);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif // BUTTON_HANDLER_H

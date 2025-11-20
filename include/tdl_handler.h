@@ -2,11 +2,11 @@
 #define TDL_HANDLER_H
 
 #include "button_handler.h"
+#include "cvi_tdl.h"
+
 extern "C" {
 #include <cvi_comm.h>
 }
-
-#include "cvi_tdl.h"
 
 typedef struct {
     cvitdl_handle_t tdlHandle;

@@ -1,14 +1,14 @@
 #ifndef VENC_HANDLER_H
 #define VENC_HANDLER_H
 
+#include "cvi_tdl.h"
+#include "tdl_handler.h"
+
 extern "C" {
 #include <cvi_comm.h>
 #include <sample_comm.h>
 #include "middleware_utils.h"
 }
-
-#include "cvi_tdl.h"
-#include "tdl_handler.h"
 
 typedef struct {
     SAMPLE_TDL_MW_CONTEXT *pstMWContext;
