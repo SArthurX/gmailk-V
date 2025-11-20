@@ -127,6 +127,10 @@ target_link_libraries(main
     opencv_core
     opencv_imgproc
     opencv_imgcodecs
+
+    
+    # NCNN library
+    ncnn
     
     # NCNN library
     ncnn

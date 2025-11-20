@@ -1,9 +1,12 @@
 #include "tdl_handler.h"
 #include "shared_data.h"
+#include "draw_utils.h"
 #include <iostream>
 #include <cstring>
 #include <sys/time.h>
 #include <time.h>
+#include <cmath>
+#include <cfloat>
 
 extern "C" {
 #include <cvi_sys.h>
@@ -93,14 +96,69 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
         return CVI_FAILURE;
     }
 
-    cvtdl_service_brush_t brushi;
-    brushi.color.r = 255.;
-    brushi.color.g = 0.f;
-    brushi.color.b = 0.f;
-    brushi.size = 4;
+    // no face then return
+    if (pstFaceMeta->size == 0) {
+        return CVI_SUCCESS;
+    }
+
+    float frame_center_x = pstFrame->stVFrame.u32Width / 2.0f;
+    float frame_center_y = pstFrame->stVFrame.u32Height / 2.0f;
     
-    return CVI_TDL_Service_FaceDrawRect(pstHandler->serviceHandle, pstFaceMeta, 
-                                        pstFrame, false, brushi);
+    float center_threshold = 80.0f; 
+    
+    // find the face closest to the center crosshair (within threshold)
+    int center_face_idx = -1;
+    float min_distance = FLT_MAX;
+    
+    for (uint32_t i = 0; i < pstFaceMeta->size; i++) {
+        float bbox_x1 = pstFaceMeta->info[i].bbox.x1;
+        float bbox_y1 = pstFaceMeta->info[i].bbox.y1;
+        float bbox_x2 = pstFaceMeta->info[i].bbox.x2;
+        float bbox_y2 = pstFaceMeta->info[i].bbox.y2;
+        
+        float face_center_x = (bbox_x1 + bbox_x2) / 2.0f;
+        float face_center_y = (bbox_y1 + bbox_y2) / 2.0f;
+        
+        float dx = face_center_x - frame_center_x;
+        float dy = face_center_y - frame_center_y;
+        float distance = sqrt(dx * dx + dy * dy);
+        
+        // if in the threshold 
+        if (distance < center_threshold && distance < min_distance) {
+            min_distance = distance;
+            center_face_idx = i;
+        }
+    }
+    
+    
+    CVI_S32 s32Ret = CVI_SUCCESS;
+    for (uint32_t i = 0; i < pstFaceMeta->size; i++) {
+        cvtdl_service_brush_t brush;
+        brush.size = 4;
+        if ((int)i == center_face_idx) 
+            brush = BRUSH_RED;
+        else 
+            brush = BRUSH_BLUE;
+  
+        cvtdl_face_t single_face = {0};
+        single_face.size = 1;
+        single_face.width = pstFaceMeta->width;
+        single_face.height = pstFaceMeta->height;
+        single_face.info = (cvtdl_face_info_t *)malloc(sizeof(cvtdl_face_info_t));
+        if (single_face.info) {
+            memcpy(single_face.info, &pstFaceMeta->info[i], sizeof(cvtdl_face_info_t));
+            
+            s32Ret = CVI_TDL_Service_FaceDrawRect(pstHandler->serviceHandle, &single_face, 
+                                                  pstFrame, false, brush);
+            
+            free(single_face.info);
+            if (s32Ret != CVI_SUCCESS) {
+                return s32Ret;
+            }
+        }
+    }
+    
+    return s32Ret;
 }
 
 
@@ -130,10 +188,14 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
     TDLHandler_t *pstHandler = static_cast<TDLHandler_t *>(pHandle);
     VIDEO_FRAME_INFO_S stFrame;
     cvtdl_face_t stFaceMeta = {0};
-    struct timeval t0, t1;
-    unsigned long execution_time;
     CVI_S32 s32Ret;
     static uint32_t s_u32LastFaceSize = 0;
+    
+    struct timeval t0, t1 ,fps_t0, fps_t1;;
+    unsigned long execution_time;
+    gettimeofday(&fps_t0, NULL);
+    int frame_count = 0;
+    float current_fps = 0.0f;
     
     while (!g_bExit) {
         s32Ret = CVI_VPSS_GetChnFrame(0, VPSS_CHN1, &stFrame, 2000);
@@ -189,7 +251,7 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
         
         if (s32Ret != CVI_SUCCESS) {
             std::cerr << "CVI_VPSS_GetChnFrame failed with 0x" << std::hex << s32Ret << std::endl;
-            goto get_frame_failed;
+            break;
         }
         
         std::memset(&stFaceMeta, 0, sizeof(cvtdl_face_t));
@@ -201,15 +263,36 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
         
         if (s32Ret != CVI_TDL_SUCCESS) {
             std::cerr << "Inference failed, ret=0x" << std::hex << s32Ret << std::endl;
-            goto inf_error;
+            CVI_TDL_Free(&stFaceMeta);
+            CVI_VPSS_ReleaseChnFrame(0, 1, &stFrame);
+            if (s32Ret != CVI_SUCCESS) {
+                g_bExit = true;
+            }
+            continue;
         }
         
         execution_time = ((t1.tv_sec - t0.tv_sec) * 1000000 + t1.tv_usec - t0.tv_usec);
+        
+
+        frame_count++;
+        gettimeofday(&fps_t1, NULL);
+        unsigned long fps_elapsed = ((fps_t1.tv_sec - fps_t0.tv_sec) * 1000000 + fps_t1.tv_usec - fps_t0.tv_usec);
+        if (fps_elapsed >= 1000000) { // 1 second
+            current_fps = (float)frame_count * 1000000.0f / (float)fps_elapsed;
+            {
+                LOCK_FPS_MUTEX();
+                g_fCurrentFPS = current_fps;
+                UNLOCK_FPS_MUTEX();
+            }
+            frame_count = 0;
+            fps_t0 = fps_t1;
+        }
         
         if (stFaceMeta.size > 0) {
             std::cout << "=== Face Detection Results ===" << std::endl;
             std::cout << "Face count: " << stFaceMeta.size << std::endl;
             std::cout << "Inference time: " << (float)execution_time / 1000 << " ms" << std::endl;
+            std::cout << "FPS: " << current_fps << std::endl;
             std::cout << "Frame size: " << stFrame.stVFrame.u32Width << "x" 
                       << stFrame.stVFrame.u32Height << std::endl;
             
@@ -238,13 +321,8 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
             UNLOCK_RESULT_MUTEX();
         }
         
-    inf_error:
-        CVI_VPSS_ReleaseChnFrame(0, 1, &stFrame);
-    get_frame_failed:
         CVI_TDL_Free(&stFaceMeta);
-        if (s32Ret != CVI_SUCCESS) {
-            g_bExit = true;
-        }
+        CVI_VPSS_ReleaseChnFrame(0, 1, &stFrame);
     }
     
     std::cout << "Exit TDL thread" << std::endl;

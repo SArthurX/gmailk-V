@@ -13,8 +13,14 @@ extern cvtdl_face_t g_stFaceMeta;
 
 extern pthread_mutex_t g_ResultMutex;
 
+extern float g_fCurrentFPS;
+extern pthread_mutex_t g_FPSMutex;
+
 #define LOCK_RESULT_MUTEX() pthread_mutex_lock(&g_ResultMutex)
 #define UNLOCK_RESULT_MUTEX() pthread_mutex_unlock(&g_ResultMutex)
+
+#define LOCK_FPS_MUTEX() pthread_mutex_lock(&g_FPSMutex)
+#define UNLOCK_FPS_MUTEX() pthread_mutex_unlock(&g_FPSMutex)
 
 void SharedData_Init();
 void SharedData_Cleanup();
