@@ -51,7 +51,7 @@ CVI_S32 SystemInit_GetSensorConfig(SystemConfig_t *pstConfig) {
 }
 
 CVI_S32 SystemInit_SetupVBPool(SystemConfig_t *pstConfig) {
-    pstConfig->stMWConfig.stVBPoolConfig.u32VBPoolCount = 3;
+    pstConfig->stMWConfig.stVBPoolConfig.u32VBPoolCount = 4;
     
     // VBPool 0 for VPSS Grp0 Chn0
     pstConfig->stMWConfig.stVBPoolConfig.astVBPoolSetup[0].enFormat = VI_PIXEL_FORMAT;
@@ -77,22 +77,21 @@ CVI_S32 SystemInit_SetupVBPool(SystemConfig_t *pstConfig) {
     pstConfig->stMWConfig.stVBPoolConfig.astVBPoolSetup[2].u32Height = 1080;
     pstConfig->stMWConfig.stVBPoolConfig.astVBPoolSetup[2].u32Width = 1920;
     pstConfig->stMWConfig.stVBPoolConfig.astVBPoolSetup[2].bBind = false;
+
+    pstConfig->stMWConfig.stVBPoolConfig.astVBPoolSetup[3].enFormat = PIXEL_FORMAT_RGB_888_PLANAR;  
+    pstConfig->stMWConfig.stVBPoolConfig.astVBPoolSetup[3].u32BlkCount = 3;
+    pstConfig->stMWConfig.stVBPoolConfig.astVBPoolSetup[3].u32Height = 112;
+    pstConfig->stMWConfig.stVBPoolConfig.astVBPoolSetup[3].u32Width = 112;
+    pstConfig->stMWConfig.stVBPoolConfig.astVBPoolSetup[3].bBind = true;
+    pstConfig->stMWConfig.stVBPoolConfig.astVBPoolSetup[3].u32VpssChnBinding = VPSS_CHN2;
+    pstConfig->stMWConfig.stVBPoolConfig.astVBPoolSetup[3].u32VpssGrpBinding = (VPSS_GRP)0;
     
-    std::cout << "VBPool configured: 3 pools" << std::endl;
+    std::cout << "VBPool configured: 4 pools" << std::endl;
     return CVI_SUCCESS;
 }
 
 CVI_S32 SystemInit_SetupVPSS(SystemConfig_t *pstConfig) {
     pstConfig->stMWConfig.stVPSSPoolConfig.u32VpssGrpCount = 1;
-    
-#ifndef CV186X
-    pstConfig->stMWConfig.stVPSSPoolConfig.stVpssMode.aenInput[0] = VPSS_INPUT_MEM;
-    pstConfig->stMWConfig.stVPSSPoolConfig.stVpssMode.enMode = VPSS_MODE_DUAL;
-    pstConfig->stMWConfig.stVPSSPoolConfig.stVpssMode.ViPipe[0] = 0;
-    pstConfig->stMWConfig.stVPSSPoolConfig.stVpssMode.aenInput[1] = VPSS_INPUT_ISP;
-    pstConfig->stMWConfig.stVPSSPoolConfig.stVpssMode.ViPipe[1] = 0;
-#endif
-    
     SAMPLE_TDL_VPSS_CONFIG_S *pstVpssConfig = &pstConfig->stMWConfig.stVPSSPoolConfig.astVpssConfig[0];
     pstVpssConfig->bBindVI = true;
     
@@ -102,7 +101,7 @@ CVI_S32 SystemInit_SetupVPSS(SystemConfig_t *pstConfig) {
                              pstConfig->stSensorSize.u32Height, 
                              VI_PIXEL_FORMAT, 1);
     
-    pstVpssConfig->u32ChnCount = 2;
+    pstVpssConfig->u32ChnCount = 3;
     pstVpssConfig->u32ChnBindVI = 0;
     
     VPSS_CHN_DEFAULT_HELPER(&pstVpssConfig->astVpssChnAttr[0], 
@@ -114,6 +113,12 @@ CVI_S32 SystemInit_SetupVPSS(SystemConfig_t *pstConfig) {
                             pstConfig->stVencSize.u32Width,
                             pstConfig->stVencSize.u32Height, 
                             VI_PIXEL_FORMAT, true);
+
+    VPSS_CHN_DEFAULT_HELPER(&pstVpssConfig->astVpssChnAttr[3], 
+                            pstConfig->stVencSize.u32Width,
+                            pstConfig->stVencSize.u32Height, 
+                            PIXEL_FORMAT_RGB_888_PLANAR,  // RGB 格式
+                            true);
     
     std::cout << "VPSS configured: 1 group, 2 channels" << std::endl;
     return CVI_SUCCESS;
