@@ -24,6 +24,7 @@ BUILD_TYPE="Release"
 CLEAN_BUILD=0
 VERBOSE=0
 JOBS=$(nproc)
+BUILD_TEST=0
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -44,6 +45,10 @@ while [[ $# -gt 0 ]]; do
             BUILD_TYPE="Release"
             shift
             ;;
+        -t|--test)
+            BUILD_TEST=1
+            shift
+            ;;
         --chip)
             CHIP="$2"
             shift 2
@@ -62,6 +67,7 @@ while [[ $# -gt 0 ]]; do
             echo "  -v, --verbose         Verbose build output"
             echo "  -d, --debug           Debug build (default: Release)"
             echo "  -r, --release         Release build"
+            echo "  -t, --test            Build test directory"
             echo "  --chip <CHIP>         Target chip: CV181X (default) or CV180X"
             echo "  -j, --jobs <N>        Number of parallel jobs (default: $(nproc))"
             echo "  -h, --help            Show this help message"
@@ -71,6 +77,8 @@ while [[ $# -gt 0 ]]; do
             echo "  $0 --clean            # Clean and build"
             echo "  $0 --chip CV180X      # Build for CV180X chip"
             echo "  $0 --debug -v         # Debug build with verbose output"
+            echo "  $0 -t                 # Build test directory"
+            echo "  $0 -t -c              # Clean and build test directory"
             exit 0
             ;;
         *)
@@ -87,11 +95,25 @@ if [[ "$CHIP" != "CV181X" && "$CHIP" != "CV180X" ]]; then
     exit 1
 fi
 
+# Set build directory based on test flag
+if [ $BUILD_TEST -eq 1 ]; then
+    BUILD_DIR="${SCRIPT_DIR}/test/build"
+    SOURCE_DIR="${SCRIPT_DIR}/test"
+    PROJECT_NAME="Test"
+    OUTPUT_NAME="test"
+else
+    BUILD_DIR="${SCRIPT_DIR}/build"
+    SOURCE_DIR="${SCRIPT_DIR}"
+    PROJECT_NAME="Main"
+    OUTPUT_NAME="main"
+fi
+
 print_header "╔════════════════════════════════════════════╗"
 print_header "║        gmailk-V CMake Build System         ║"
 print_header "╚════════════════════════════════════════════╝"
 echo ""
 print_info "Configuration:"
+echo "  • Target:     $PROJECT_NAME Project"
 echo "  • Chip:       $CHIP"
 echo "  • Build Type: $BUILD_TYPE"
 echo "  • Jobs:       $JOBS"
@@ -120,7 +142,7 @@ if [ $VERBOSE -eq 1 ]; then
     CMAKE_ARGS+=("-DCMAKE_VERBOSE_MAKEFILE=ON")
 fi
 
-cmake .. "${CMAKE_ARGS[@]}"
+cmake "$SOURCE_DIR" "${CMAKE_ARGS[@]}"
 
 if [ $? -ne 0 ]; then
     print_error "CMake configuration failed!"
@@ -144,13 +166,13 @@ if [ $? -eq 0 ]; then
     print_header "║          Build Successful! ✓               ║"
     print_header "╚════════════════════════════════════════════╝"
     echo ""
-    print_info "Executable: ${BUILD_DIR}/main"
+    print_info "Executable: ${BUILD_DIR}/${OUTPUT_NAME}"
     
     # Show file info
-    if [ -f "${BUILD_DIR}/main" ]; then
-        FILE_SIZE=$(du -h "${BUILD_DIR}/main" | cut -f1)
+    if [ -f "${BUILD_DIR}/${OUTPUT_NAME}" ]; then
+        FILE_SIZE=$(du -h "${BUILD_DIR}/${OUTPUT_NAME}" | cut -f1)
         echo "  • Size: $FILE_SIZE"
-        echo "  • Type: $(file -b "${BUILD_DIR}/main" | head -n1)"
+        echo "  • Type: $(file -b "${BUILD_DIR}/${OUTPUT_NAME}" | head -n1)"
     fi
     echo ""
 else
