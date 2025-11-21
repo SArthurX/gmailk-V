@@ -75,24 +75,6 @@ for (uint32_t i = 0; i < bbox_num; i++) {
 
 ## NCNN ArcFace 模型分析
 
-### 模型特性（從 test/arcface.cpp）
-```cpp
-class Arcface {
-  const int feature_dim = 128;  // 輸出128維特徵向量
-  
-  std::vector<float> getFeature(ncnn::Mat img);  // 提取特徵
-  void normalize(std::vector<float> &feature);   // L2正規化
-};
-
-// 相似度計算（餘弦相似度）
-float calcSimilar(std::vector<float> feature1, std::vector<float> feature2) {
-  float sim = 0.0;
-  for (int i = 0; i < feature1.size(); i++)
-    sim += feature1[i] * feature2[i];
-  return sim;  // 已正規化，直接點積即餘弦相似度
-}
-```
-
 ### 效能考量
 - ⚠️ **NCNN 模型可能成為瓶頸**（您的第3點關注）
 - ⚠️ 每次提取需要處理 112x112 輸入圖像
@@ -139,26 +121,6 @@ float calcSimilar(std::vector<float> feature1, std::vector<float> feature2) {
 - ✅ DeepSORT 利用這些特徵做短期追蹤（幫助解決遮擋、快速移動）
 - ✅ 人臉辨識另外維護資料庫，用相同特徵與資料庫比對
 
-### 問題 3: 效能瓶頸與提取策略
-
-**核心矛盾**：
-- 追蹤需要持續更新才穩定
-- 特徵提取太慢無法每幀執行
-- 辨識需要高品質特徵
-
-**解決策略**：
-
-#### 階段1：追蹤優先（低頻特徵提取）
-```
-1. 每一幀執行人臉檢測（已有）
-2. 每一幀執行 DeepSORT 追蹤（新增）
-   - 前幾幀無 feature，純用 bbox 追蹤（SORT模式）
-   - 追蹤器會給每個人臉分配 unique_id
-3. 僅對「新出現」或「關鍵幀」提取特徵
-   - 條件1：tracker.state == CVI_TRACKER_NEW（新人臉）
-   - 條件2：face_quality > threshold（品質夠好）
-   - 條件3：距離上次提取 >= N 幀（間隔控制）
-```
 
 #### 階段2：特徵管理（內存中維護）
 ```cpp
@@ -185,23 +147,6 @@ std::map<uint64_t, TrackedFace> active_tracks;
 4. 或定期重新辨識（每N秒一次）
 ```
 
----
-
-## 實作架構設計
-
-### 新增模組結構
-
-```
-├── include/
-│   ├── face_tracker_manager.h      [新增] 追蹤管理器
-│   └── face_feature_extractor.h    [新增] 特徵提取器（封裝NCNN ArcFace）
-├── src/
-│   ├── face_tracker_manager.cpp
-│   └── face_feature_extractor.cpp
-└── tmp/
-    └── tracking_and_recognition_plan.md  [本文件]
-```
-
 ### 模組1: FaceFeatureExtractor（特徵提取）
 
 **職責**：
@@ -217,7 +162,7 @@ public:
                        const std::string& model_bin,
                        cvitdl_handle_t tdl_handle);
   
-  // 從幀中提取指定人臉的特徵（使用官方對齊 API）
+  // 從幀中提取指定人臉的特徵（使用官方對齊 API + IVE 加速）
   bool extractFeature(VIDEO_FRAME_INFO_S* frame,
                       cvtdl_face_info_t* face_info,
                       std::vector<float>& feature);
@@ -229,17 +174,25 @@ public:
 private:
   Arcface* arcface_model;
   cvitdl_handle_t tdl_handle;
-  bool use_gdc;  // 系統是否支援 GDC（已確認：✅ 支援）
+  IVE_HANDLE ive_handle;  // IVE 硬體加速句柄
   
   // 使用官方 API 對齊人臉（支援 GDC 硬體加速）
   CVI_S32 alignFaceWithGDC(VIDEO_FRAME_INFO_S* inFrame,
                            cvtdl_face_info_t* face_info,
                            VIDEO_FRAME_INFO_S* outFrame);
   
+  // 使用 IVE 硬體加速進行 NV21 → RGB 轉換
+  CVI_S32 convertNV21ToRGB_IVE(VIDEO_FRAME_INFO_S* inFrame,
+                               VIDEO_FRAME_INFO_S* outFrame);
+  
   // 轉換 VIDEO_FRAME 到 ncnn::Mat
   ncnn::Mat frameToNcnnMat(VIDEO_FRAME_INFO_S* frame);
 };
 ```
+
+**硬體加速支援狀態**：
+- ✅ **IVE (Image & Video Engine)**：已導入 `cvi_ive.h`，支援 NV21 → RGB 硬體加速轉換
+- ✅ **GDC (Geometric Distortion Correction)**：支援人臉對齊仿射變換硬體加速
 
 **`CVI_TDL_FaceAlignment` 內部流程**（已驗證系統支援 GDC）：
 
@@ -249,11 +202,9 @@ CVI_S32 CVI_TDL_FaceAlignment(VIDEO_FRAME_INFO_S *inFrame,
                               const uint32_t metaHeight, 
                               const cvtdl_face_info_t *info,
                               VIDEO_FRAME_INFO_S *outFrame, 
-                              const bool enableGDC) {
+                              ) {
   
-  if (enableGDC) {
     // ===== GDC 硬體加速模式（您的系統支援 ✅）=====
-    
     // 1. 檢查輸入格式（GDC 模式支援的格式）
     if (inFrame->stVFrame.enPixelFormat != PIXEL_FORMAT_RGB_888_PLANAR &&
         inFrame->stVFrame.enPixelFormat != PIXEL_FORMAT_YUV_PLANAR_420) {
@@ -274,93 +225,136 @@ CVI_S32 CVI_TDL_FaceAlignment(VIDEO_FRAME_INFO_S *inFrame,
     //    - 使用硬體加速裁剪並對齊到標準姿態
     //    - 輸出 112x112 的對齊人臉
     cvitdl::face_align_gdc(inFrame, outFrame, face_info);
-    //    ⚡ 性能：~1-2ms（硬體加速）
-    
-  } else {
-    // ===== OpenCV CPU 模式（回退方案）=====
-    
-    // 1. 檢查輸入格式（OpenCV 模式只支援 RGB_888）
-    if (inFrame->stVFrame.enPixelFormat != PIXEL_FORMAT_RGB_888) {
-      LOGE("OpenCV mode: Unsupported format. Need RGB_888");
-      return CVI_TDL_FAILURE;
-    }
-    
-    // 2. 內存映射（如果尚未映射）
-    bool do_unmap_in = false, do_unmap_out = false;
-    if (inFrame->stVFrame.pu8VirAddr[0] == NULL) {
-      inFrame->stVFrame.pu8VirAddr[0] = (CVI_U8 *)CVI_SYS_Mmap(
-          inFrame->stVFrame.u64PhyAddr[0], 
-          inFrame->stVFrame.u32Length[0]
-      );
-      do_unmap_in = true;
-    }
-    if (outFrame->stVFrame.pu8VirAddr[0] == NULL) {
-      outFrame->stVFrame.pu8VirAddr[0] = (CVI_U8 *)CVI_SYS_Mmap(
-          outFrame->stVFrame.u64PhyAddr[0], 
-          outFrame->stVFrame.u32Length[0]
-      );
-      do_unmap_out = true;
-    }
-    
-    // 3. 轉換為 OpenCV Mat
-    cv::Mat image(
-        cv::Size(inFrame->stVFrame.u32Width, inFrame->stVFrame.u32Height), 
-        CV_8UC3,
-        inFrame->stVFrame.pu8VirAddr[0], 
-        inFrame->stVFrame.u32Stride[0]
-    );
-    cv::Mat warp_image(
-        cv::Size(outFrame->stVFrame.u32Width, outFrame->stVFrame.u32Height),
-        image.type(), 
-        outFrame->stVFrame.pu8VirAddr[0],
-        outFrame->stVFrame.u32Stride[0]
-    );
-    
-    // 4. 座標縮放
-    cvtdl_face_info_t face_info = cvitdl::info_rescale_c(
-        metaWidth, metaHeight, 
-        inFrame->stVFrame.u32Width, 
-        inFrame->stVFrame.u32Height, 
-        *info
-    );
-    
-    // 5. 使用 OpenCV 進行人臉對齊（仿射變換）
-    cvitdl::face_align(image, warp_image, face_info);
-    //    🐌 性能：~5-10ms（CPU 軟體實現）
-    
-    // 6. Cache 刷新（確保 CPU 寫入對硬體可見）
-    CVI_SYS_IonFlushCache(
-        outFrame->stVFrame.u64PhyAddr[0], 
-        outFrame->stVFrame.pu8VirAddr[0],
-        outFrame->stVFrame.u32Length[0]
-    );
-    
-    // 7. 清理內存映射
-    if (do_unmap_in) {
-      CVI_SYS_Munmap((void *)inFrame->stVFrame.pu8VirAddr[0], 
-                     inFrame->stVFrame.u32Length[0]);
-      inFrame->stVFrame.pu8VirAddr[0] = NULL;
-    }
-    if (do_unmap_out) {
-      CVI_SYS_Munmap((void *)outFrame->stVFrame.pu8VirAddr[0], 
-                     outFrame->stVFrame.u32Length[0]);
-      outFrame->stVFrame.pu8VirAddr[0] = NULL;
-    }
-  }
-  
   return CVI_TDL_SUCCESS;
 }
 ```
 
 **關鍵點總結**：
-1. ✅ **您的系統有 GDC**（`/proc/cvitek/gdc` 存在）
-2. ✅ **應使用 `enableGDC=true`** 以獲得最佳性能
-3. ⚡ **GDC 模式性能**：~1-2ms（硬體加速）
-4. 🔄 **自動處理**：座標縮放、內存管理、Cache 同步
-5. 📋 **支援格式**：
+6. 🔄 **自動處理**：座標縮放、內存管理、Cache 同步
+7. 📋 **支援格式**：
    - GDC 模式：`PIXEL_FORMAT_RGB_888_PLANAR`, `PIXEL_FORMAT_YUV_PLANAR_420`
    - OpenCV 模式：`PIXEL_FORMAT_RGB_888`
-6. 🎯 **輸出尺寸**：通常 112x112（ArcFace 標準輸入尺寸）
+   - IVE 模式：`PIXEL_FORMAT_NV21` → `PIXEL_FORMAT_RGB_888_PLANAR`
+8. 🎯 **輸出尺寸**：通常 112x112（ArcFace 標準輸入尺寸）
+
+### 模組1.1: IVE 硬體加速色彩空間轉換
+
+**背景**：
+- 視訊流通常為 NV21 格式（YUV420SP）
+- NCNN ArcFace 需要 RGB 格式輸入
+
+**IVE NV21 → RGB 轉換流程**：
+```cpp
+CVI_S32 FaceFeatureExtractor::convertNV21ToRGB_IVE(
+    VIDEO_FRAME_INFO_S* nv21Frame,
+    VIDEO_FRAME_INFO_S* rgbFrame) {
+  
+  // 1. 初始化 IVE 句柄（如果尚未初始化）
+  if (ive_handle == NULL) {
+    CVI_S32 ret = CVI_IVE_CreateHandle(&ive_handle);
+    if (ret != CVI_SUCCESS) {
+      LOGE("Failed to create IVE handle");
+      return CVI_FAILURE;
+    }
+  }
+  
+  // 2. 創建 IVE 圖像結構
+  IVE_IMAGE_S src_img, dst_img;
+  
+  // 2.1 源圖像（NV21）
+  src_img.enType = IVE_IMAGE_TYPE_YUV420SP;  // NV21 格式
+  src_img.u32Width = nv21Frame->stVFrame.u32Width;
+  src_img.u32Height = nv21Frame->stVFrame.u32Height;
+  src_img.u32Stride[0] = nv21Frame->stVFrame.u32Stride[0];
+  src_img.u64PhyAddr[0] = nv21Frame->stVFrame.u64PhyAddr[0];  // Y 平面
+  src_img.u64PhyAddr[1] = nv21Frame->stVFrame.u64PhyAddr[1];  // UV 平面
+  src_img.pu8VirAddr[0] = nv21Frame->stVFrame.pu8VirAddr[0];
+  src_img.pu8VirAddr[1] = nv21Frame->stVFrame.pu8VirAddr[1];
+  
+  // 2.2 目標圖像（RGB Planar）
+  dst_img.enType = IVE_IMAGE_TYPE_U8C3_PLANAR;  // RGB Planar 格式
+  dst_img.u32Width = rgbFrame->stVFrame.u32Width;
+  dst_img.u32Height = rgbFrame->stVFrame.u32Height;
+  dst_img.u32Stride[0] = rgbFrame->stVFrame.u32Stride[0];
+  dst_img.u64PhyAddr[0] = rgbFrame->stVFrame.u64PhyAddr[0];  // R 平面
+  dst_img.u64PhyAddr[1] = rgbFrame->stVFrame.u64PhyAddr[1];  // G 平面
+  dst_img.u64PhyAddr[2] = rgbFrame->stVFrame.u64PhyAddr[2];  // B 平面
+  dst_img.pu8VirAddr[0] = rgbFrame->stVFrame.pu8VirAddr[0];
+  dst_img.pu8VirAddr[1] = rgbFrame->stVFrame.pu8VirAddr[1];
+  dst_img.pu8VirAddr[2] = rgbFrame->stVFrame.pu8VirAddr[2];
+  
+  // 3. 執行 IVE 色彩空間轉換（硬體加速）
+  IVE_CSC_CTRL_S csc_ctrl;
+  csc_ctrl.enMode = IVE_CSC_MODE_PIC_BT709_YUV2RGB;  // BT.709 標準
+  
+  CVI_S32 ret = CVI_IVE_CSC(ive_handle, &src_img, &dst_img, &csc_ctrl, CVI_TRUE);
+  //                                                             ^^^^^^ 阻塞模式
+  //    ⚡ 性能：~0.5-1ms（硬體加速）
+  
+  if (ret != CVI_SUCCESS) {
+    LOGE("IVE CSC failed: %d", ret);
+    return CVI_FAILURE;
+  }
+  
+  // 4. Cache 刷新（確保硬體寫入對 CPU 可見）
+  CVI_SYS_IonInvalidateCache(dst_img.u64PhyAddr[0], 
+                             dst_img.pu8VirAddr[0], 
+                             rgbFrame->stVFrame.u32Length[0]);
+  
+  return CVI_SUCCESS;
+}
+```
+
+**IVE 使用時機**：
+- ✅ **用於**：NCNN ArcFace 特徵提取前的格式轉換
+- ✅ **用於**：需要高頻率轉換的場景（每幀處理）
+- ❌ **不用於**：DeepSORT 輸入（SDK 內部已處理 NV21）
+- ❌ **不用於**：TDL 人臉檢測輸入（SDK 內部已處理 NV21）
+
+**與 GDC 的配合**：
+```
+完整流程（優化版本）：
+┌──────────────┐
+│ NV21 Frame   │ 原始視訊流
+└──────┬───────┘
+       │
+       ├─────────────────────────────┐
+       │                             │
+       ▼                             ▼
+┌──────────────┐           ┌──────────────┐
+│ TDL 人臉檢測  │           │ IVE NV21→RGB │ 如果需要特徵提取
+│ (支援 NV21)  │           │ (~0.5-1ms)   │
+└──────┬───────┘           └──────┬───────┘
+       │                          │
+       ▼                          │
+┌──────────────┐                  │
+│ DeepSORT     │                  │
+│ (支援 NV21)  │                  │
+└──────┬───────┘                  │
+       │                          │
+       ▼                          ▼
+┌──────────────┐           ┌──────────────┐
+│ 追蹤決策:    │           │ GDC 人臉對齊  │
+│ 是否提取特徵? │───YES────>│ (~1-2ms)     │
+└──────────────┘           └──────┬───────┘
+                                  │
+                                  ▼
+                           ┌──────────────┐
+                           │ NCNN ArcFace │
+                           │ 特徵提取     │
+                           │ (~50-100ms)  │
+                           └──────────────┘
+```
+
+**性能優勢**：
+- ⚠️ **仍然瓶頸**：NCNN ArcFace 特徵提取 ~50-100ms（無硬體加速）
+
+**需要確認的問題**：
+1. 當前系統的 NV21 幀是否已經有虛擬地址映射？
+   - 如果 `pu8VirAddr[0] == NULL`，需要先 `CVI_SYS_Mmap` A:可以觀察tdl怎麼實作dump擷取圖片
+2. RGB 輸出緩衝區如何分配？
+   - 選項A：使用 VB pool 預先分配（推薦）
+   - 選項B：動態分配（需要 `CVI_SYS_Alloc` + Ion 內存）
 
 ### 模組2: FaceTrackerManager（追蹤與辨識管理）
 
@@ -419,49 +413,6 @@ private:
   void cleanLostTracks(cvtdl_tracker_t* tracker);
 };
 ```
-
-### 整合到 tdl_handler.cpp
-
-**修改點**：
-```cpp
-// tdl_handler.h 中新增
-typedef struct {
-  // ... 原有欄位
-  FaceTrackerManager* tracker_manager;  // 新增
-} TDLHandler_t;
-
-// tdl_handler.cpp 主循環修改
-void *TDLHandler_ThreadRoutine(void *pHandle) {
-  TDLHandler_t *pstHandler = static_cast<TDLHandler_t *>(pHandle);
-  VIDEO_FRAME_INFO_S stFrame;
-  cvtdl_face_t stFaceMeta = {0};
-  cvtdl_tracker_t stTracker = {0};  // 新增
-  
-  while (!g_bExit) {
-    // 1. 獲取幀
-    s32Ret = CVI_VPSS_GetChnFrame(0, VPSS_CHN1, &stFrame, 2000);
-    
-    // 2. 人臉檢測（原有）
-    s32Ret = TDLHandler_DetectFace(pstHandler, &stFrame, &stFaceMeta);
-    
-    // 3. 追蹤 + 特徵提取 + 辨識（新增）
-    s32Ret = pstHandler->tracker_manager->processFrame(
-      &stFrame, &stFaceMeta, &stTracker);
-    
-    // 4. 繪製結果（使用 tracker 信息）
-    drawTrackingResults(&stFrame, &stFaceMeta, &stTracker);
-    
-    // 5. 更新全局數據
-    updateGlobalData(&stFaceMeta, &stTracker);
-    
-    // 清理
-    CVI_TDL_Free(&stFaceMeta);
-    CVI_TDL_Free(&stTracker);
-    CVI_VPSS_ReleaseChnFrame(0, 1, &stFrame);
-  }
-}
-```
-
 ---
 
 ## 實作步驟建議
@@ -558,163 +509,6 @@ void fillFeatureToFaceInfo(cvtdl_face_info_t* face_info,
 }
 ```
 
-### 2. VIDEO_FRAME 到 ncnn::Mat 轉換 ✅ 已有方案
-
-**使用官方 `CVI_TDL_FaceAlignment` 輸出 112x112 對齊人臉**：
-
-```cpp
-ncnn::Mat FaceFeatureExtractor::frameToNcnnMat(VIDEO_FRAME_INFO_S* frame) {
-  // 1. 確保內存映射
-  bool need_unmap = false;
-  if (frame->stVFrame.pu8VirAddr[0] == NULL) {
-    CVI_SYS_Mmap(&frame->stVFrame);
-    need_unmap = true;
-  }
-  
-  int width = frame->stVFrame.u32Width;    // 112
-  int height = frame->stVFrame.u32Height;  // 112
-  
-  // 2. 根據格式轉換
-  ncnn::Mat result;
-  
-  if (frame->stVFrame.enPixelFormat == PIXEL_FORMAT_RGB_888) {
-    // RGB_888 格式：直接使用
-    // Stride 可能大於 width*3，需要處理
-    cv::Mat cv_mat(height, width, CV_8UC3,
-                   frame->stVFrame.pu8VirAddr[0],
-                   frame->stVFrame.u32Stride[0]);
-    
-    // 轉換為 ncnn::Mat（BGR -> RGB）
-    result = ncnn::Mat::from_pixels(cv_mat.data, ncnn::Mat::PIXEL_BGR2RGB,
-                                   width, height);
-    
-  } else if (frame->stVFrame.enPixelFormat == PIXEL_FORMAT_RGB_888_PLANAR) {
-    // Planar RGB：R, G, B 分開存儲
-    result = ncnn::Mat(width, height, 3);
-    uint8_t* r_plane = frame->stVFrame.pu8VirAddr[0];
-    uint8_t* g_plane = r_plane + width * height;
-    uint8_t* b_plane = g_plane + width * height;
-    
-    // 拷貝到 ncnn::Mat
-    memcpy(result.channel(0), r_plane, width * height);
-    memcpy(result.channel(1), g_plane, width * height);
-    memcpy(result.channel(2), b_plane, width * height);
-    
-  } else if (frame->stVFrame.enPixelFormat == PIXEL_FORMAT_YUV_PLANAR_420) {
-    // YUV420 -> RGB 轉換
-    cv::Mat yuv(height + height/2, width, CV_8UC1, 
-               frame->stVFrame.pu8VirAddr[0]);
-    cv::Mat rgb;
-    cv::cvtColor(yuv, rgb, cv::COLOR_YUV2RGB_I420);
-    
-    result = ncnn::Mat::from_pixels(rgb.data, ncnn::Mat::PIXEL_RGB,
-                                   width, height);
-  }
-  
-  // 3. 清理
-  if (need_unmap) {
-    CVI_SYS_Munmap((void*)frame->stVFrame.pu8VirAddr[0],
-                   frame->stVFrame.u32Length[0]);
-    frame->stVFrame.pu8VirAddr[0] = NULL;
-  }
-  
-  return result;
-}
-```
-
-### 3. 人臉對齊實現 ✅ 使用官方 API
-
-**已確認方案**：使用 `CVI_TDL_FaceAlignment` with GDC
-
-- ✅ 系統支援 GDC 硬體（`/proc/cvitek/gdc` 已驗證）
-- ✅ 性能：~1-2ms（硬體加速）
-- ✅ 自動處理座標縮放、內存管理
-- ✅ 輸出標準 112x112 對齊人臉
-
-**完整流程**：
-```
-1. 人臉檢測 -> 獲得 bbox + 5個關鍵點
-2. CVI_TDL_FaceAlignment (GDC) -> 112x112 對齊人臉
-3. frameToNcnnMat -> ncnn::Mat
-4. ArcFace 推理 -> 128維特徵 (float)
-5. 轉換為 INT8 -> 填充到 cvtdl_face_info_t.feature
-6. 傳入 CVI_TDL_DeepSORT_Face -> 追蹤 + Re-ID
-```
-
----
-
-## 效能優化建議
-
-### 策略 1：分級處理
-```
-Level 1 (每幀):     人臉檢測 + 追蹤 (純 bbox)
-Level 2 (每5幀):    特徵提取 (僅新人臉或品質好的)
-Level 3 (每30幀):   人臉辨識 (比對資料庫)
-```
-
-### 策略 2：多執行緒
-```
-Thread 1: 主循環 (檢測 + 追蹤)
-Thread 2: 特徵提取隊列處理
-Thread 3: 辨識隊列處理
-```
-
-### 策略 3：特徵緩存
-```
-- 每個 track_id 只保留最新的一個特徵
-- 辨識成功後降低更新頻率
-- 追蹤丟失後保留特徵 N 秒（處理暫時遮擋）
-```
-
----
-
-## 測試計劃
-
-### 功能測試
-1. ✅ 單人追蹤穩定性
-2. ✅ 多人追蹤 ID 不混淆
-3. ✅ 遮擋後 re-ID 是否有效
-4. ✅ 人臉辨識準確率
-5. ✅ 資料庫註冊與查詢
-
-### 效能測試
-1. ⏱️ FPS 監控（期望 >= 15 fps）
-2. ⏱️ 特徵提取耗時
-3. ⏱️ 辨識耗時
-4. ⏱️ 記憶體占用
-
-### 壓力測試
-1. 💪 5+ 人同時追蹤
-2. 💪 快速移動
-3. 💪 光照變化
-4. 💪 角度變化
-
----
-
-## 風險與備案
-
-### 風險 1：NCNN ArcFace 太慢
-
-**備案**：
-- 降低提取頻率（10-20幀一次）
-- 使用更小的模型
-- 或尋找官方支持的模型（但您說不要用官方 FaceRecognition）
-
-### 風險 2：DeepSORT 不支持外部 float feature
-
-**備案**：
-- 自己實現簡化版追蹤（IOU + 特徵距離）
-- 或使用 ByteTrack（純 IOU，不用特徵）
-
-### 風險 3：記憶體不足
-
-**備案**：
-- 限制同時追蹤數量
-- 更積極的清理策略
-- 特徵向量量化（128 float -> 128 int8 = 4倍省空間）
-
----
-
 ## 結論與建議
 
 ### 立即行動建議
@@ -751,14 +545,221 @@ Thread 3: 辨識隊列處理
 
 ---
 
-## 下一步行動
 
-請您確認：
-1. ✅ 是否同意先完成「階段A：DeepSORT基礎整合」？
-2. ❓ 是否需要我現在就開始實作階段A的程式碼？
-3. ❓ 還是您想先看到更詳細的某個技術細節說明？
+## 🔥 重要發現與改進方案
 
-我建議：
-👉 **先完成階段A，驗證追蹤基本可行**
-👉 **然後再決定是否投入階段B（特徵提取）**
-👉 **避免一次改動太大導致難以除錯**
+
+
+### 問題 2: YUV 轉 RGB 硬體加速方案
+
+#### ✅ SDK 提供的硬體加速接口
+
+從搜尋結果發現，**SDK 有多種 YUV->RGB 轉換方案**：
+
+#### 方案 A：IVE 硬體加速 CSC（推薦）
+
+**API**: `CVI_IVE_CSC` 和 `CVI_IVE_FilterAndCSC`
+
+**特點**：
+- ✅ **硬體加速**（使用 IVE 引擎）
+- ✅ 支持 YUV420SP/YUV420P -> RGB 轉換
+
+```cpp
+VIDEO_FRAME_INFO_S aligned_face;
+aligned_face.stVFrame.u32Width = 112;
+aligned_face.stVFrame.u32Height = 112;
+aligned_face.stVFrame.enPixelFormat = PIXEL_FORMAT_RGB_888_PLANAR;  // 指定 RGB 輸出
+
+CVI_S32 ret = CVI_TDL_FaceAlignment(
+    pstFrame,                        // 原始幀（YUV）
+    pstFrame->stVFrame.u32Width,     // 原圖寬度
+    pstFrame->stVFrame.u32Height,    // 原圖高度
+    &stFaceMeta.info[i],             // 人臉信息
+    &aligned_face,                   // 輸出對齊後的人臉
+    true                             // 啟用 GDC 硬體加速
+);
+
+// 2. 如果 GDC 支持直接輸出 RGB，則無需轉換
+// 如果 GDC 輸出仍是 YUV，則使用方案 A 轉換
+if (aligned_face.stVFrame.enPixelFormat != PIXEL_FORMAT_RGB_888_PLANAR) {
+  // 執行 YUV -> RGB 轉換（使用方案 A）
+}
+
+// 3. 轉換為 ncnn::Mat 並推理
+ncnn::Mat ncnn_input = frameToNcnnMat(&aligned_face);
+std::vector<float> feature = arcface_model->getFeature(ncnn_input);
+```
+
+### 📋 完整工作流程建議
+
+#### 階段 A：DeepSORT實作
+
+```cpp
+cvtdl_deepsort_config_t ds_conf;
+CVI_TDL_DeepSORT_GetDefaultConfig(&ds_conf);
+CVI_TDL_DeepSORT_SetConfig(tdl_handle, &ds_conf, -1, true);
+CVI_TDL_DeepSORT_Face(tdl_handle, &stFaceMeta, &stTracker);
+```
+
+#### 階段 B：整合 ArcFace 特徵提取
+
+```cpp
+// 使用 TDL SDK cvtColor 進行 YUV->RGB 轉換
+cv::Mat yuv_mat(...);  // 從 VIDEO_FRAME 構建
+cv::Mat rgb_mat;
+cvitdl::cvtColor(yuv_mat, rgb_mat, cvitdl::COLOR_YUV2RGB_NV21, 3);
+
+// 轉換為 ncnn::Mat 並推理
+ncnn::Mat ncnn_rgb = ncnn::Mat::from_pixels(rgb_mat.data, ncnn::Mat::PIXEL_RGB,
+                                            rgb_mat.cols, rgb_mat.rows);
+std::vector<float> feature = arcface_model->getFeature(ncnn_rgb);
+
+// 填充特徵到 DeepSORT
+fillFeatureToFaceInfo(&stFaceMeta.info[i], feature);
+```
+
+---
+
+**需要確認的問題**：
+- ❓ 當前 `VIDEO_FRAME_INFO_S` 的虛擬地址是否已映射？
+  - 檢查位置：`tdl_handler.cpp` 中的幀處理流程
+  - 如果 `stFrame.stVFrame.pu8VirAddr[0] == NULL`，需要先 `CVI_SYS_Mmap`
+  
+- ❓ RGB 輸出緩衝區分配策略？
+  - **選項 A**：使用 VB pool 預先分配（推薦，性能穩定）
+  - **選項 B**：動態使用 `CVI_SYS_Alloc` + Ion 內存（靈活但可能有碎片）
+  - **選項 C**：復用現有的 TDL 內部緩衝區（需要研究 SDK 內部實現）
+  - 解釋差異
+
+- ❓ IVE 色彩空間轉換標準？
+  - `IVE_CSC_MODE_PIC_BT709_YUV2RGB`（BT.709，HDTV 標準）
+  - `IVE_CSC_MODE_PIC_BT601_YUV2RGB`（BT.601，SDTV 標準）
+  - **建議**：先用 BT.709，如果顏色不對再切換到 BT.601
+
+#### 2. FaceFeatureExtractor 模組實作
+**目標**：封裝 NCNN ArcFace + IVE/GDC 加速
+
+**實作步驟**：
+```cpp
+class FaceFeatureExtractor {
+  // 1. 構造時初始化 IVE handle
+  FaceFeatureExtractor() {
+    CVI_IVE_CreateHandle(&ive_handle);
+    // 加載 NCNN ArcFace 模型
+  }
+  
+  // 2. 實作核心提取函數
+  bool extractFeature(VIDEO_FRAME_INFO_S* nv21Frame,
+                      cvtdl_face_info_t* face_info,
+                      std::vector<float>& feature) {
+    // Step 1: IVE NV21 -> RGB (~0.5-1ms)
+    VIDEO_FRAME_INFO_S rgb_frame;
+    convertNV21ToRGB_IVE(nv21Frame, &rgb_frame);
+    
+    // Step 2: GDC 人臉對齊 (~1-2ms)
+    VIDEO_FRAME_INFO_S aligned_face;
+    CVI_TDL_FaceAlignment(&rgb_frame, ..., face_info, &aligned_face, true);
+    
+    // Step 3: NCNN ArcFace 特徵提取 (~50-100ms)
+    ncnn::Mat face_mat = frameToNcnnMat(&aligned_face);
+    feature = arcface_model->getFeature(face_mat);
+    
+    // Step 4: 清理資源
+    // ...
+  }
+};
+```
+
+**需要確認的問題**：
+- ❓ 是否需要批量處理？
+  - 如果一幀有多張人臉需要提取特徵，是逐一處理還是批量？
+  - **建議**：先實作單張，我以實作畫面準心，可以對準後幾秒自動提取特徵，後續優化再考慮批量
+
+#### 3. 追蹤穩定性優化
+**目標**：確保 DeepSORT 追蹤 ID 穩定
+
+**需要確認的問題**：
+- ❓ 當前追蹤是否有不穩定現象？
+  - ID 頻繁跳動
+  - 人臉消失後重新出現時分配新 ID
+  - **建議**：先測試當前追蹤效果，再決定是否需要調整
+
+#### 4. 特徵提取策略
+**目標**：決定何時提取特徵以平衡性能與準確性
+
+**當前策略**（從文檔中提取）：
+```cpp
+bool shouldExtractFeature(TrackedFace& track, cvtdl_tracker_t& tracker_info) {
+  // 條件 1：新出現的追蹤目標
+  if (tracker_info.info[i].state == CVI_TRACKER_NEW) return true;
+  
+  // 條件 2：距離上次提取超過 N 幀（避免重複計算）
+  if (track.frames_since_feature > FEATURE_EXTRACT_INTERVAL) return true;
+  
+  // 條件 3：人臉品質夠好（避免模糊人臉）
+  if (face_info.face_quality > MIN_FACE_QUALITY) return true;
+  
+  return false;
+}
+```
+
+**需要確認的問題**：
+- ❓ `FEATURE_EXTRACT_INTERVAL` 設為多少幀？
+  - **建議**：初期設為 30 幀（~1 秒），根據實際效果調整
+  
+- ❓ `MIN_FACE_QUALITY` 閾值？
+  - **建議**：初期設為 0.6，根據實際效果調整
+
+- ❓ 是否需要「品質最佳幀」策略？
+  - 在追蹤期間收集多幀，選擇品質最高的一幀提取特徵
+  - **建議**：先實作簡單策略，後續優化再考慮
+
+### 🔍 需要您回答的關鍵問題
+
+1. **RGB 緩衝區分配方式**：
+   - 使用 VB pool 還是動態分配？
+   - 需要多少個緩衝區？（建議：2-4 個用於特徵提取）
+   - 自行決定
+
+
+2. **當前追蹤穩定性**：
+   - 現在的追蹤是否有 ID 跳動問題？
+   - 還是目前追蹤正常，只是缺少辨識功能？
+
+3. **測試場景**：
+   - 主要用於什麼場景？（門禁、考勤、監控？）
+   - 預期同時追蹤多少張人臉？（1-5 張？5-10 張？）
+   - 幀率要求？（15fps? 25fps?）
+
+4. **人臉資料庫**：
+   - 是否已有準備好的人臉資料庫？
+   - 還是需要實作即時註冊功能？
+
+### 📊 性能預估（基於 IVE 硬體加速）
+
+```
+單幀處理流程（假設 1 張人臉）：
+┌────────────────────────────┬──────────┐
+│ TDL 人臉檢測               │ ~10-20ms │ (TPU 加速)
+├────────────────────────────┼──────────┤
+│ DeepSORT 追蹤              │ ~1-2ms   │ (純 CPU)
+├────────────────────────────┼──────────┤
+│ 特徵提取（按需）：          │          │
+│  - IVE NV21->RGB           │ ~0.5-1ms │ (IVE 硬體)
+│  - GDC 人臉對齊            │ ~1-2ms   │ (GDC 硬體)
+│  - NCNN ArcFace 提取       │ ~50-100ms│ (CPU，瓶頸)
+├────────────────────────────┼──────────┤
+│ 人臉辨識（比對資料庫）      │ ~0.1-1ms │ (純計算)
+└────────────────────────────┴──────────┘
+
+總計（不含特徵提取）：~11-22ms (≈ 45-90 fps) ✅
+總計（含特徵提取）：~62-124ms (≈ 8-16 fps) ⚠️
+```
+
+**結論**：
+- ✅ **純追蹤模式**：可達到 45-90 fps，流暢度極佳
+- ⚠️ **含特徵提取**：降至 8-16 fps，需要智能策略避免每幀提取
+- 🎯 **推薦策略**：每 30 幀（~1 秒）提取一次特徵，可維持 25-30 fps
+
+需要我開始實作嗎？或者您有其他問題需要先確認？
+
