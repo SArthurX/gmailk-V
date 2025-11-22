@@ -21,7 +21,6 @@ function print_header()  { printf "${BLUE}%s${NC}\n" "$1"; }
 # Default settings
 CHIP="CV181X"
 BUILD_TYPE="Release"
-CLEAN_BUILD=0
 VERBOSE=0
 JOBS=$(nproc)
 BUILD_TEST=0
@@ -30,7 +29,12 @@ BUILD_TEST=0
 while [[ $# -gt 0 ]]; do
     case $1 in
         -c|--clean)
-            CLEAN_BUILD=1
+            rm -rf "$BUILD_DIR"
+            print_info "Cleaned build directory."
+            exit 0
+            ;;
+        -re|--rebuild)
+            rm -rf "$BUILD_DIR"
             shift
             ;;
         -v|--verbose)
@@ -63,7 +67,8 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  -c, --clean           Clean build (remove build directory)"
+            echo "  -c, --clean           Clean (remove build directory)"
+            echo "  -re, --rebuild        Rebuild (remove build directory and build again)"
             echo "  -v, --verbose         Verbose build output"
             echo "  -d, --debug           Debug build (default: Release)"
             echo "  -r, --release         Release build"
@@ -74,11 +79,11 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Examples:"
             echo "  $0                    # Build with default settings"
-            echo "  $0 --clean            # Clean and build"
+            echo "  $0 --clean            # Clean build directory"
             echo "  $0 --chip CV180X      # Build for CV180X chip"
             echo "  $0 --debug -v         # Debug build with verbose output"
             echo "  $0 -t                 # Build test directory"
-            echo "  $0 -t -c              # Clean and build test directory"
+            echo "  $0 -t -re             # Clean and build test directory"
             exit 0
             ;;
         *)
@@ -120,17 +125,9 @@ echo "  • Jobs:       $JOBS"
 echo "  • Toolchain:  $TOOLCHAIN_FILE"
 echo ""
 
-# Clean build if requested
-if [ $CLEAN_BUILD -eq 1 ]; then
-    print_warning "Cleaning build directory..."
-    rm -rf "$BUILD_DIR"
-fi
-
-# Create build directory
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
-# Configure with CMake
 print_info "Configuring project with CMake..."
 CMAKE_ARGS=(
     "-DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN_FILE}"
