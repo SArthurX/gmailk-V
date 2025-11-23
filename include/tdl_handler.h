@@ -26,7 +26,8 @@ CVI_S32 TDLHandler_DetectFace(TDLHandler_t *pstHandler,
 
 CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
                                 cvtdl_face_t *pstFaceMeta,
-                                VIDEO_FRAME_INFO_S *pstFrame);
+                                VIDEO_FRAME_INFO_S *pstFrame,
+                                cvtdl_tracker_t *pstTracker = nullptr);
 
 void *TDLHandler_ThreadRoutine(void *pHandle);
 

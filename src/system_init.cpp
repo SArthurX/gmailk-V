@@ -38,9 +38,8 @@ CVI_S32 SystemInit_GetSensorConfig(SystemConfig_t *pstConfig) {
         return CVI_FAILURE;
     }
     
-    // Setup frame size of video encoder to 1080p
-    pstConfig->stVencSize.u32Width = 1920;
-    pstConfig->stVencSize.u32Height = 1080;
+    pstConfig->stVencSize.u32Width = 1280;
+    pstConfig->stVencSize.u32Height = 720;
     
     std::cout << "Sensor size: " << pstConfig->stSensorSize.u32Width << "x" 
               << pstConfig->stSensorSize.u32Height << std::endl;
@@ -74,8 +73,8 @@ CVI_S32 SystemInit_SetupVBPool(SystemConfig_t *pstConfig) {
     // VBPool 2 for TDL preprocessing
     pstConfig->stMWConfig.stVBPoolConfig.astVBPoolSetup[2].enFormat = PIXEL_FORMAT_BGR_888_PLANAR;
     pstConfig->stMWConfig.stVBPoolConfig.astVBPoolSetup[2].u32BlkCount = 3;
-    pstConfig->stMWConfig.stVBPoolConfig.astVBPoolSetup[2].u32Height = 1080;
-    pstConfig->stMWConfig.stVBPoolConfig.astVBPoolSetup[2].u32Width = 1920;
+    pstConfig->stMWConfig.stVBPoolConfig.astVBPoolSetup[2].u32Width = 1280;
+    pstConfig->stMWConfig.stVBPoolConfig.astVBPoolSetup[2].u32Height = 720;
     pstConfig->stMWConfig.stVBPoolConfig.astVBPoolSetup[2].bBind = false;
     
     std::cout << "VBPool configured: 3 pools" << std::endl;
@@ -115,7 +114,7 @@ CVI_S32 SystemInit_SetupVPSS(SystemConfig_t *pstConfig) {
                             pstConfig->stVencSize.u32Height, 
                             VI_PIXEL_FORMAT, true);
     
-    std::cout << "VPSS configured: 1 group, 2 channels" << std::endl;
+    std::cout << "VPSS configured: 1 group, 1 channels" << std::endl;
     return CVI_SUCCESS;
 }
 

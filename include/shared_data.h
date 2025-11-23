@@ -10,6 +10,7 @@
 extern std::atomic<bool> g_bExit;
 
 extern cvtdl_face_t g_stFaceMeta;
+extern cvtdl_tracker_t g_stTracker;
 
 extern pthread_mutex_t g_ResultMutex;
 

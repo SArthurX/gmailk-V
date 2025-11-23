@@ -59,8 +59,28 @@ CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath) {
         return s32Ret;
     }
     
+    // Initialize DeepSORT tracker
+    s32Ret = CVI_TDL_DeepSORT_Init(pstHandler->tdlHandle, false);
+    if (s32Ret != CVI_SUCCESS) {
+        std::cerr << "Failed to initialize DeepSORT, ret=0x" << std::hex << s32Ret << std::endl;
+        CVI_TDL_Service_DestroyHandle(pstHandler->serviceHandle);
+        CVI_TDL_DestroyHandle(pstHandler->tdlHandle);
+        return s32Ret;
+    }
+    
+    // Configure DeepSORT parameters for face tracking
+    cvtdl_deepsort_config_t ds_conf;
+    CVI_TDL_DeepSORT_GetDefaultConfig(&ds_conf);
+    
+    ds_conf.ktracker_conf.max_unmatched_num = 90;      // ~3s @ 30fps
+    ds_conf.ktracker_conf.accreditation_threshold = 10; // ~0.33s @ 30fps
+    ds_conf.max_distance_iou = 0.5f;
+    
+    CVI_TDL_DeepSORT_SetConfig(pstHandler->tdlHandle, &ds_conf, -1, false);
+    
     std::cout << "TDL Handler initialized successfully" << std::endl;
     std::cout << "Model loaded: " << modelPath << std::endl;
+    std::cout << "DeepSORT tracker initialized" << std::endl;
     
     return CVI_SUCCESS;
 }
@@ -91,7 +111,8 @@ CVI_S32 TDLHandler_DetectFace(TDLHandler_t *pstHandler,
 
 CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
                                 cvtdl_face_t *pstFaceMeta,
-                                VIDEO_FRAME_INFO_S *pstFrame) {
+                                VIDEO_FRAME_INFO_S *pstFrame,
+                                cvtdl_tracker_t *pstTracker) {
     if (!pstHandler || !pstFaceMeta || !pstFrame) {
         return CVI_FAILURE;
     }
@@ -135,10 +156,22 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
     for (uint32_t i = 0; i < pstFaceMeta->size; i++) {
         cvtdl_service_brush_t brush;
         brush.size = 4;
-        if ((int)i == center_face_idx) 
-            brush = BRUSH_RED;
-        else 
-            brush = BRUSH_BLUE;
+        
+        // Determine brush color based on tracking state and position
+        if ((int)i == center_face_idx) {
+            brush = BRUSH_RED;  // Center face
+        } else if (pstTracker && i < pstTracker->size) {
+            // Use tracking state to determine color
+            if (pstTracker->info[i].state == CVI_TRACKER_NEW) {
+                brush = BRUSH_YELLOW;  // New track
+            } else if (pstTracker->info[i].state == CVI_TRACKER_STABLE) {
+                brush = BRUSH_GREEN;  // Stable track
+            } else {
+                brush = BRUSH_BLUE;  // Unstable track
+            }
+        } else {
+            brush = BRUSH_BLUE;  // No tracking info
+        }
   
         cvtdl_face_t single_face = {0};
         single_face.size = 1;
@@ -151,6 +184,19 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
             s32Ret = CVI_TDL_Service_FaceDrawRect(pstHandler->serviceHandle, &single_face, 
                                                   pstFrame, false, brush);
             
+            // Draw tracking ID if available
+            if (pstTracker && i < pstTracker->size) {
+                char id_text[32];
+                snprintf(id_text, sizeof(id_text), "ID:%lu", pstTracker->info[i].id);
+                
+                int text_x = (int)pstFaceMeta->info[i].bbox.x1;
+                int text_y = (int)pstFaceMeta->info[i].bbox.y1 - 5;  // Slightly above the box
+                
+                // Use same color as brush for text
+                CVI_TDL_Service_ObjectWriteText(id_text, text_x, text_y, pstFrame,
+                                               brush.color.r, brush.color.g, brush.color.b);
+            }
+            
             free(single_face.info);
             if (s32Ret != CVI_SUCCESS) {
                 return s32Ret;
@@ -160,7 +206,6 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
     
     return s32Ret;
 }
-
 
 void TDLHandler_SetButtonHandler(TDLHandler_t *pstHandler, ButtonHandler_t *buttonHandler) {
     if (pstHandler) {
@@ -188,6 +233,7 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
     TDLHandler_t *pstHandler = static_cast<TDLHandler_t *>(pHandle);
     VIDEO_FRAME_INFO_S stFrame;
     cvtdl_face_t stFaceMeta = {0};
+    cvtdl_tracker_t stTracker = {0};
     CVI_S32 s32Ret;
     static uint32_t s_u32LastFaceSize = 0;
     
@@ -271,6 +317,15 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
             continue;
         }
         
+        // Perform DeepSORT tracking
+        std::memset(&stTracker, 0, sizeof(cvtdl_tracker_t));
+        if (stFaceMeta.size > 0) {
+            s32Ret = CVI_TDL_DeepSORT_Face(pstHandler->tdlHandle, &stFaceMeta, &stTracker);
+            if (s32Ret != CVI_TDL_SUCCESS) {
+                std::cerr << "DeepSORT tracking failed, ret=0x" << std::hex << s32Ret << std::endl;
+            }
+        }
+        
         execution_time = ((t1.tv_sec - t0.tv_sec) * 1000000 + t1.tv_usec - t0.tv_usec);
         
 
@@ -289,39 +344,52 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
         }
         
         if (stFaceMeta.size > 0) {
-            std::cout << "=== Face Detection Results ===" << std::endl;
+            std::cout << "=== Face Detection & Tracking Results ===" << std::endl;
             std::cout << "Face count: " << stFaceMeta.size << std::endl;
+            std::cout << "Tracker count: " << stTracker.size << std::endl;
             std::cout << "Inference time: " << (float)execution_time / 1000 << " ms" << std::endl;
             std::cout << "FPS: " << current_fps << std::endl;
             std::cout << "Frame size: " << stFrame.stVFrame.u32Width << "x" 
                       << stFrame.stVFrame.u32Height << std::endl;
             
-            for (uint32_t i = 0; i < stFaceMeta.size; i++) {
-                std::cout << "Face[" << i << "] bbox: "
-                          << "x1=" << stFaceMeta.info[i].bbox.x1 << ", "
-                          << "y1=" << stFaceMeta.info[i].bbox.y1 << ", "
-                          << "x2=" << stFaceMeta.info[i].bbox.x2 << ", "
-                          << "y2=" << stFaceMeta.info[i].bbox.y2 << ", "
-                          << "score=" << stFaceMeta.info[i].bbox.score << std::endl;
+            for (uint32_t i = 0; i < stTracker.size; i++) {
+                const char* state_str = "UNKNOWN";
+                switch(stTracker.info[i].state) {
+                    case CVI_TRACKER_NEW: state_str = "NEW"; break;
+                    case CVI_TRACKER_UNSTABLE: state_str = "UNSTABLE"; break;
+                    case CVI_TRACKER_STABLE: state_str = "STABLE"; break;
+                }
+                
+                std::cout << "Track[" << i << "] ID=" << stTracker.info[i].id
+                          << " state=" << state_str
+                          << " bbox: x1=" << stTracker.info[i].bbox.x1 << ", "
+                          << "y1=" << stTracker.info[i].bbox.y1 << ", "
+                          << "x2=" << stTracker.info[i].bbox.x2 << ", "
+                          << "y2=" << stTracker.info[i].bbox.y2 << std::endl;
             }
-            std::cout << "=============================" << std::endl;
+            std::cout << "========================================" << std::endl;
         } else if (stFaceMeta.size != s_u32LastFaceSize) {
             std::cout << "No face detected" << std::endl;
         }
         
         s_u32LastFaceSize = stFaceMeta.size;
         
-        // 更新全局人臉數據
+        // 更新全局人臉和追蹤數據
         {
             LOCK_RESULT_MUTEX();
             std::memset(&g_stFaceMeta, 0, sizeof(cvtdl_face_t));
+            std::memset(&g_stTracker, 0, sizeof(cvtdl_tracker_t));
             if (stFaceMeta.info != nullptr) {
                 CVI_TDL_CopyFaceMeta(&stFaceMeta, &g_stFaceMeta);
+            }
+            if (stTracker.info != nullptr) {
+                CVI_TDL_CopyTrackerMeta(&stTracker, &g_stTracker);
             }
             UNLOCK_RESULT_MUTEX();
         }
         
         CVI_TDL_Free(&stFaceMeta);
+        CVI_TDL_Free(&stTracker);
         CVI_VPSS_ReleaseChnFrame(0, 1, &stFrame);
     }
     

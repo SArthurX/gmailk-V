@@ -20,6 +20,7 @@ void *VENCHandler_ThreadRoutine(void *pArgs) {
     VENCHandler_t *pstHandler = static_cast<VENCHandler_t *>(pArgs);
     VIDEO_FRAME_INFO_S stFrame;
     cvtdl_face_t stFaceMeta = {0};
+    cvtdl_tracker_t stTracker = {0};
     CVI_S32 s32Ret;
     
     while (!g_bExit) {
@@ -34,17 +35,22 @@ void *VENCHandler_ThreadRoutine(void *pArgs) {
         {
             LOCK_RESULT_MUTEX();
             std::memset(&stFaceMeta, 0, sizeof(cvtdl_face_t));
+            std::memset(&stTracker, 0, sizeof(cvtdl_tracker_t));
             if (g_stFaceMeta.info != nullptr) {
                 CVI_TDL_CopyFaceMeta(&g_stFaceMeta, &stFaceMeta);
+            }
+            if (g_stTracker.info != nullptr) {
+                CVI_TDL_CopyTrackerMeta(&g_stTracker, &stTracker);
             }
             UNLOCK_RESULT_MUTEX();
         }
         
-        // draw face rectangles on the frame
-        s32Ret = TDLHandler_DrawFaceRect(pstHandler->pstTDLHandler, &stFaceMeta, &stFrame);
+        // draw face rectangles with tracking IDs on the frame
+        s32Ret = TDLHandler_DrawFaceRect(pstHandler->pstTDLHandler, &stFaceMeta, &stFrame, &stTracker);
         if (s32Ret != CVI_TDL_SUCCESS) {
             std::cerr << "Draw frame failed, ret=0x" << std::hex << s32Ret << std::endl;
             CVI_TDL_Free(&stFaceMeta);
+            CVI_TDL_Free(&stTracker);
             CVI_VPSS_ReleaseChnFrame(0, 0, &stFrame);
             if (s32Ret != CVI_SUCCESS) {
                 g_bExit = true;
