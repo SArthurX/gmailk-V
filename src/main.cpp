@@ -21,11 +21,20 @@ static void SampleHandleSig(CVI_S32 signo) {
 }
 
 int main(int argc, char *argv[]) {
-  if (argc != 2) {
-    std::cout << "\nUsage: " << argv[0] << " SCRFDFACE_MODEL_PATH.\n\n"
-              << "\tSCRFDFACE_MODEL_PATH, path to scrfdface model.\n" << std::endl;
+  if (argc < 2 || argc > 4) {
+    std::cout << "\nUsage: " << argv[0] << " SCRFDFACE_MODEL_PATH [ARCFACE_PARAM] [ARCFACE_BIN]\n\n"
+              << "\tSCRFDFACE_MODEL_PATH, path to scrfdface model.\n"
+              << "\tARCFACE_PARAM (optional), path to ArcFace .param file.\n"
+              << "\tARCFACE_BIN (optional), path to ArcFace .bin file.\n"
+              << "\nExample:\n"
+              << "\t" << argv[0] << " models/scrfd.cvimodel\n"
+              << "\t" << argv[0] << " models/scrfd.cvimodel models/mobilefacenet.param models/mobilefacenet.bin\n" 
+              << std::endl;
     return -1;
   }
+
+  const char* arcfaceParam = (argc >= 3) ? argv[2] : nullptr;
+  const char* arcfaceBin = (argc >= 4) ? argv[3] : nullptr;
 
   signal(SIGINT, SampleHandleSig);
   signal(SIGTERM, SampleHandleSig);
@@ -43,7 +52,7 @@ int main(int argc, char *argv[]) {
   }
 
   TDLHandler_t stTDLHandler;
-  s32Ret = TDLHandler_Init(&stTDLHandler, argv[1]);
+  s32Ret = TDLHandler_Init(&stTDLHandler, argv[1], arcfaceParam, arcfaceBin);
   if (s32Ret != CVI_SUCCESS) {
     std::cerr << "TDL initialization failed!" << std::endl;
     SystemInit_Cleanup(&stMWContext);

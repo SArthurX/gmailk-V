@@ -8,13 +8,15 @@
 #include "shared_data.h"
 #include "draw_utils.h"
 #include "button_handler.h"
+#include "face_feature_extractor.h"
 
 extern "C" {
 #include <cvi_sys.h>
 #include "middleware_utils.h"
 }
 
-CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath) {
+CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath,
+                        const char *arcfaceParam, const char *arcfaceBin) {
     if (!pstHandler || !modelPath) {
         std::cerr << "Invalid parameters for TDLHandler_Init" << std::endl;
         return CVI_FAILURE;
@@ -22,7 +24,10 @@ CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath) {
     
     std::memset(pstHandler, 0, sizeof(TDLHandler_t));
     pstHandler->modelPath = modelPath;
+    pstHandler->arcfaceParamPath = arcfaceParam;
+    pstHandler->arcfaceBinPath = arcfaceBin;
     pstHandler->buttonHandler = nullptr;
+    pstHandler->featureExtractor = nullptr;
     
     // Create TDL handle and assign VPSS Grp1 Device 0 to TDL SDK
     CVI_S32 s32Ret = CVI_TDL_CreateHandle2(&pstHandler->tdlHandle, 1, 0);
@@ -78,6 +83,27 @@ CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath) {
     
     CVI_TDL_DeepSORT_SetConfig(pstHandler->tdlHandle, &ds_conf, -1, false);
     
+    // Initialize ArcFace feature extractor (optional)
+    if (arcfaceParam && arcfaceBin) {
+        pstHandler->featureExtractor = new FaceFeatureExtractor(
+            arcfaceParam,
+            arcfaceBin,
+            pstHandler->tdlHandle
+        );
+        
+        if (pstHandler->featureExtractor && pstHandler->featureExtractor->isLoaded()) {
+            std::cout << "✅ Feature extractor initialized successfully" << std::endl;
+        } else {
+            std::cerr << "⚠️  Feature extractor initialization failed, tracking will work without features" << std::endl;
+            if (pstHandler->featureExtractor) {
+                delete pstHandler->featureExtractor;
+                pstHandler->featureExtractor = nullptr;
+            }
+        }
+    } else {
+        std::cout << "ℹ️  Feature extraction disabled (no ArcFace model specified)" << std::endl;
+    }
+    
     std::cout << "TDL Handler initialized successfully" << std::endl;
     std::cout << "Model loaded: " << modelPath << std::endl;
     std::cout << "DeepSORT tracker initialized" << std::endl;
@@ -87,6 +113,10 @@ CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath) {
 
 void TDLHandler_Cleanup(TDLHandler_t *pstHandler) {
     if (pstHandler) {
+        if (pstHandler->featureExtractor) {
+            delete pstHandler->featureExtractor;
+            pstHandler->featureExtractor = nullptr;
+        }
         if (pstHandler->serviceHandle) {
             CVI_TDL_Service_DestroyHandle(pstHandler->serviceHandle);
         }
@@ -131,6 +161,11 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
     int center_face_idx = -1;
     float min_distance = FLT_MAX;
     
+    // Get selected track ID
+    LOCK_SELECTED_TRACK_MUTEX();
+    int selectedTrackID = g_iSelectedTrackID;
+    UNLOCK_SELECTED_TRACK_MUTEX();
+    
     for (uint32_t i = 0; i < pstFaceMeta->size; i++) {
         float bbox_x1 = pstFaceMeta->info[i].bbox.x1;
         float bbox_y1 = pstFaceMeta->info[i].bbox.y1;
@@ -157,20 +192,29 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
         cvtdl_service_brush_t brush;
         brush.size = 4;
         
-        // Determine brush color based on tracking state and position
-        if ((int)i == center_face_idx) {
-            brush = BRUSH_RED;  // Center face
-        } else if (pstTracker && i < pstTracker->size) {
-            // Use tracking state to determine color
-            if (pstTracker->info[i].state == CVI_TRACKER_NEW) {
-                brush = BRUSH_YELLOW;  // New track
-            } else if (pstTracker->info[i].state == CVI_TRACKER_STABLE) {
-                brush = BRUSH_GREEN;  // Stable track
+        bool is_selected = false;
+        
+        // 優先級判斷：選中狀態 > 中心位置 > 追蹤狀態
+        if (pstTracker && i < pstTracker->size) {
+            // 1. 最高優先級：檢查是否為選中的軌跡（紅色）
+            if (selectedTrackID != -1 && (int)pstTracker->info[i].id == selectedTrackID) {
+                brush = BRUSH_RED;  // 選中的軌跡：紅色框
+                is_selected = true;
+            }
+            // 2. 次優先級：在中心準星且未被選中（黃色，可按按鈕選中）
+            else if ((int)i == center_face_idx) {
+                brush = BRUSH_YELLOW;  // 中心位置的人臉：黃色框（提示可選中）
+            }
+            // 3. 最低優先級：根據追蹤狀態著色
+            else if (pstTracker->info[i].state == CVI_TRACKER_STABLE) {
+                brush = BRUSH_GREEN;  // 穩定追蹤：綠色框
+            } else if (pstTracker->info[i].state == CVI_TRACKER_NEW) {
+                brush = BRUSH_YELLOW;  // 新追蹤：黃色框
             } else {
-                brush = BRUSH_BLUE;  // Unstable track
+                brush = BRUSH_BLUE;  // 不穩定追蹤：藍色框
             }
         } else {
-            brush = BRUSH_BLUE;  // No tracking info
+            brush = BRUSH_BLUE;  // 無追蹤資訊：藍色框
         }
   
         cvtdl_face_t single_face = {0};
@@ -184,17 +228,52 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
             s32Ret = CVI_TDL_Service_FaceDrawRect(pstHandler->serviceHandle, &single_face, 
                                                   pstFrame, false, brush);
             
-            // Draw tracking ID if available
+            // Draw tracking ID and feature data if available
             if (pstTracker && i < pstTracker->size) {
-                char id_text[32];
+                int text_y_offset = 0;
+                
+                // Draw ID
+                char id_text[64];
                 snprintf(id_text, sizeof(id_text), "ID:%lu", pstTracker->info[i].id);
                 
                 int text_x = (int)pstFaceMeta->info[i].bbox.x1;
-                int text_y = (int)pstFaceMeta->info[i].bbox.y1 - 5;  // Slightly above the box
+                int text_y = (int)pstFaceMeta->info[i].bbox.y1 - 25;
                 
-                // Use same color as brush for text
                 CVI_TDL_Service_ObjectWriteText(id_text, text_x, text_y, pstFrame,
                                                brush.color.r, brush.color.g, brush.color.b);
+                text_y_offset += 15;
+                
+                // If selected and has feature, display feature data
+                if (is_selected) {
+                    LOCK_FEATURE_MUTEX();
+                    if (g_mapTrackFeatures.find(pstTracker->info[i].id) != g_mapTrackFeatures.end()) {
+                        const std::vector<float>& feature = g_mapTrackFeatures[pstTracker->info[i].id];
+                        
+                        // Display first 4 feature values
+                        char feat_text[80];
+                        snprintf(feat_text, sizeof(feat_text), "F:[%.2f,%.2f,%.2f,%.2f]", 
+                                feature[0], feature[1], feature[2], feature[3]);
+                        
+                        CVI_TDL_Service_ObjectWriteText(feat_text, text_x, text_y - text_y_offset, pstFrame,
+                                                       255.0f, 255.0f, 255.0f);  // White text
+                    } else {
+                        // Show "Waiting..." if locked but not extracted yet
+                        LOCK_LOCKTIME_MUTEX();
+                        if (g_mapTrackLockTime.find(pstTracker->info[i].id) != g_mapTrackLockTime.end()) {
+                            time_t lockTime = g_mapTrackLockTime[pstTracker->info[i].id];
+                            int duration = (int)(time(NULL) - lockTime);
+                            if (duration < FEATURE_EXTRACT_LOCK_SECONDS) {
+                                char wait_text[32];
+                                snprintf(wait_text, sizeof(wait_text), "Wait %ds", 
+                                        FEATURE_EXTRACT_LOCK_SECONDS - duration);
+                                CVI_TDL_Service_ObjectWriteText(wait_text, text_x, text_y - text_y_offset, pstFrame,
+                                                               255.0f, 255.0f, 0.0f);  // Yellow text
+                            }
+                        }
+                        UNLOCK_LOCKTIME_MUTEX();
+                    }
+                    UNLOCK_FEATURE_MUTEX();
+                }
             }
             
             free(single_face.info);
@@ -247,42 +326,6 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
         s32Ret = CVI_VPSS_GetChnFrame(0, VPSS_CHN1, &stFrame, 2000);
         
         if (s32Ret == CVI_SUCCESS) {
-            if (pstHandler->buttonHandler) {
-                ButtonPressType_t pressType = ButtonHandler_GetPressType(pstHandler->buttonHandler);
-                
-                if (pressType == BUTTON_PRESS_SHORT) {
-                    time_t now = time(NULL);
-                    struct tm *t = localtime(&now);
-                    char filename[256];
-                    snprintf(filename, sizeof(filename), 
-                            "capture_%04d%02d%02d_%02d%02d%02d.bin",
-                            t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
-                            t->tm_hour, t->tm_min, t->tm_sec);
-                    
-                    std::cout << "=== Short Press: Capturing Photo ===" << std::endl;
-                    std::cout << "Filename: " << filename << std::endl;
-                    
-                    s32Ret = TDLHandler_CapturePhoto(&stFrame, filename);
-                    if (s32Ret == CVI_SUCCESS) {
-                        std::cout << "Photo captured successfully!" << std::endl;
-                        std::cout << "Size: " << stFrame.stVFrame.u32Width << "x" 
-                                  << stFrame.stVFrame.u32Height << std::endl;
-                    } else {
-                        std::cerr << "Failed to capture photo" << std::endl;
-                    }
-                    std::cout << "=====================================" << std::endl;
-                    
-                    ButtonHandler_ClearPressType(pstHandler->buttonHandler);
-                } 
-                else if (pressType == BUTTON_PRESS_LONG) {
-                    std::cout << "=== Long Press: Special Function ===" << std::endl;
-                    std::cout << "Long press detected - executing special function" << std::endl;
-                    std::cout << "====================================" << std::endl;
-                    
-                    ButtonHandler_ClearPressType(pstHandler->buttonHandler);
-                }
-            }
-            
             static bool bFirstFrame = true;
             if (bFirstFrame) {
                 std::cout << "=== Frame Information ===" << std::endl;
@@ -323,6 +366,168 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
             s32Ret = CVI_TDL_DeepSORT_Face(pstHandler->tdlHandle, &stFaceMeta, &stTracker);
             if (s32Ret != CVI_TDL_SUCCESS) {
                 std::cerr << "DeepSORT tracking failed, ret=0x" << std::hex << s32Ret << std::endl;
+            }
+            
+            // === 按鈕處理（在追蹤完成後） ===
+            if (pstHandler->buttonHandler) {
+                ButtonPressType_t pressType = ButtonHandler_GetPressType(pstHandler->buttonHandler);
+                
+                if (pressType == BUTTON_PRESS_SHORT) {
+                    std::cout << "🔘 Button pressed (SHORT)" << std::endl;
+                    
+                    // 短按：選中當前在中心準星的人臉
+                    if (stTracker.size > 0) {
+                        // 找到中心的人臉
+                        float frame_center_x = stFrame.stVFrame.u32Width / 2.0f;
+                        float frame_center_y = stFrame.stVFrame.u32Height / 2.0f;
+                        float center_threshold = 80.0f;
+                        
+                        int center_face_idx = -1;
+                        float min_distance = FLT_MAX;
+                        
+                        for (uint32_t i = 0; i < stFaceMeta.size; i++) {
+                            float face_center_x = (stFaceMeta.info[i].bbox.x1 + stFaceMeta.info[i].bbox.x2) / 2.0f;
+                            float face_center_y = (stFaceMeta.info[i].bbox.y1 + stFaceMeta.info[i].bbox.y2) / 2.0f;
+                            
+                            float dx = face_center_x - frame_center_x;
+                            float dy = face_center_y - frame_center_y;
+                            float distance = sqrt(dx * dx + dy * dy);
+                            
+                            if (distance < center_threshold && distance < min_distance) {
+                                min_distance = distance;
+                                center_face_idx = i;
+                            }
+                        }
+                        
+                        if (center_face_idx != -1 && center_face_idx < (int)stTracker.size) {
+                            LOCK_SELECTED_TRACK_MUTEX();
+                            g_iSelectedTrackID = stTracker.info[center_face_idx].id;
+                            UNLOCK_SELECTED_TRACK_MUTEX();
+                            
+                            // 記錄選中時間
+                            LOCK_LOCKTIME_MUTEX();
+                            g_mapTrackLockTime[g_iSelectedTrackID] = time(NULL);
+                            UNLOCK_LOCKTIME_MUTEX();
+                            
+                            std::cout << "=== Track Selected ===" << std::endl;
+                            std::cout << "Track ID: " << g_iSelectedTrackID << std::endl;
+                            std::cout << "🎯 Face locked! Feature extraction will start in " 
+                                      << FEATURE_EXTRACT_LOCK_SECONDS << " seconds..." << std::endl;
+                            std::cout << "=====================" << std::endl;
+                        } else {
+                            std::cout << "❌ No face at center crosshair (threshold: " << center_threshold << "px)" << std::endl;
+                            std::cout << "   Move a face to center and press again" << std::endl;
+                        }
+                    } else {
+                        std::cout << "❌ No faces detected (stTracker.size = " << stTracker.size << ")" << std::endl;
+                    }
+                    
+                    ButtonHandler_ClearPressType(pstHandler->buttonHandler);
+                } 
+                else if (pressType == BUTTON_PRESS_LONG) {
+                    std::cout << "🔘 Button pressed (LONG)" << std::endl;
+                    
+                    // 長按：取消選中
+                    LOCK_SELECTED_TRACK_MUTEX();
+                    if (g_iSelectedTrackID != -1) {
+                        std::cout << "=== Track Deselected ===" << std::endl;
+                        std::cout << "Track ID " << g_iSelectedTrackID << " unlocked" << std::endl;
+                        std::cout << "Red frame removed" << std::endl;
+                        std::cout << "========================" << std::endl;
+                        g_iSelectedTrackID = -1;
+                        
+                        // 清理鎖定時間和特徵（可選）
+                        LOCK_LOCKTIME_MUTEX();
+                        g_mapTrackLockTime.clear();
+                        UNLOCK_LOCKTIME_MUTEX();
+                    } else {
+                        std::cout << "No track is currently selected" << std::endl;
+                    }
+                    UNLOCK_SELECTED_TRACK_MUTEX();
+                    
+                    ButtonHandler_ClearPressType(pstHandler->buttonHandler);
+                }
+            }
+            
+            // Extract features for tracked faces (if feature extractor is available)
+            // 只對選中且鎖定超過 3 秒的人臉提取特徵
+            if (pstHandler->featureExtractor && stTracker.size > 0) {
+                LOCK_SELECTED_TRACK_MUTEX();
+                int selectedID = g_iSelectedTrackID;
+                UNLOCK_SELECTED_TRACK_MUTEX();
+                
+                if (selectedID != -1) {
+                    // 檢查是否鎖定超過 3 秒
+                    LOCK_LOCKTIME_MUTEX();
+                    time_t lockTime = 0;
+                    if (g_mapTrackLockTime.find(selectedID) != g_mapTrackLockTime.end()) {
+                        lockTime = g_mapTrackLockTime[selectedID];
+                    }
+                    UNLOCK_LOCKTIME_MUTEX();
+                    
+                    time_t now = time(NULL);
+                    int lockDuration = (int)(now - lockTime);
+                    
+                    // 顯示倒計時（僅在需要時）
+                    static int last_remaining = -1;
+                    if (lockDuration < FEATURE_EXTRACT_LOCK_SECONDS) {
+                        int remaining = FEATURE_EXTRACT_LOCK_SECONDS - lockDuration;
+                        if (remaining != last_remaining) {
+                            std::cout << "⏱️  Track ID " << selectedID << " locked, feature extraction in " 
+                                      << remaining << "s..." << std::endl;
+                            last_remaining = remaining;
+                        }
+                    } else {
+                        last_remaining = -1;
+                        
+                        // 找到選中的軌跡並提取特徵
+                        for (uint32_t i = 0; i < stFaceMeta.size; i++) {
+                            if (stTracker.info[i].id == selectedID) {
+                                // 檢查是否已經提取過特徵
+                                LOCK_FEATURE_MUTEX();
+                                bool hasFeature = (g_mapTrackFeatures.find(selectedID) != g_mapTrackFeatures.end());
+                                UNLOCK_FEATURE_MUTEX();
+                                
+                                if (!hasFeature) {
+                                    std::cout << "🔍 Extracting feature for locked Track ID " << selectedID 
+                                              << " (locked for " << lockDuration << "s)..." << std::endl;
+                                    
+                                    std::vector<float> feature;
+                                    CVI_S32 feat_ret = pstHandler->featureExtractor->extractFeature(
+                                        &stFrame,
+                                        &stFaceMeta.info[i],
+                                        feature
+                                    );
+                                    
+                                    if (feat_ret == CVI_SUCCESS && feature.size() == 128) {
+                                        // 存儲特徵到全局 map
+                                        LOCK_FEATURE_MUTEX();
+                                        g_mapTrackFeatures[selectedID] = feature;
+                                        UNLOCK_FEATURE_MUTEX();
+                                        
+                                        // 填充到 face meta（供 DeepSORT 使用）
+                                        if (!stFaceMeta.info[i].feature.ptr) {
+                                            stFaceMeta.info[i].feature.ptr = (int8_t*)malloc(128);
+                                        }
+                                        
+                                        for (int j = 0; j < 128; j++) {
+                                            float val = feature[j] * 127.0f;
+                                            val = val < -128.0f ? -128.0f : (val > 127.0f ? 127.0f : val);
+                                            stFaceMeta.info[i].feature.ptr[j] = (int8_t)val;
+                                        }
+                                        stFaceMeta.info[i].feature.size = 128;
+                                        stFaceMeta.info[i].feature.type = TYPE_INT8;
+                                        
+                                        std::cout << "✅ Feature extracted and stored for Track ID " << selectedID << std::endl;
+                                    } else {
+                                        std::cerr << "❌ Feature extraction failed for Track ID " << selectedID << std::endl;
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
             }
         }
         
