@@ -3,7 +3,7 @@
 
 #include "button_handler.h"
 #include "cvi_tdl.h"
-
+#include "oled_handler.h"
 extern "C" {
 #include <cvi_comm.h>
 }
@@ -19,6 +19,7 @@ typedef struct {
     const char *arcfaceBinPath;    // ArcFace 模型權重文件路徑
     ButtonHandler_t *buttonHandler;
     FaceFeatureExtractor *featureExtractor;  // 特徵提取器
+    OLEDHandler_t *oledHandler;
 } TDLHandler_t;
 
 CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath,
@@ -39,6 +40,8 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
 void *TDLHandler_ThreadRoutine(void *pHandle);
 
 void TDLHandler_SetButtonHandler(TDLHandler_t *pstHandler, ButtonHandler_t *buttonHandler);
+
+void TDLHandler_SetOLEDHandler(TDLHandler_t *pstHandler, OLEDHandler_t *oledHandler);
 
 CVI_S32 TDLHandler_CapturePhoto(VIDEO_FRAME_INFO_S *pstFrame, const char *filepath);
 
