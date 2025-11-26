@@ -62,16 +62,16 @@ include_directories(
     ${PROJECT_ROOT}/include/tdl
     ${PROJECT_ROOT}/common
     ${PROJECT_ROOT}/src/3rdparty
+    ${PROJECT_ROOT}/src/drivers/ssd1306
     ${OPENCV_INCLUDE_DIR}
     ${OPENCV_INCLUDE_DIR}/opencv4
     ${NCNN_INCLUDE_DIR}
     ${NCNN_INCLUDE_DIR}/ncnn
-    ${CMAKE_SOURCE_DIR}/src/drivers/ssd1306
 )
 
 set(SSD1306_SOURCES
-    src/drivers/ssd1306/ssd1306.c
-    src/drivers/ssd1306/linux_i2c.c
+    ${PROJECT_ROOT}/src/drivers/ssd1306/ssd1306.c
+    ${PROJECT_ROOT}/src/drivers/ssd1306/linux_i2c.c
 )
 
 set(COMMON_SOURCES

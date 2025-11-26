@@ -9,7 +9,6 @@ main
 *.rej
 .DS_Store
 
-tags
 .tags*
 cscope.*
 ncscope.*
@@ -17,7 +16,6 @@ ncscope.*
 
 obj
 tmp/*
-test/*
 build
 
 __pycache__
