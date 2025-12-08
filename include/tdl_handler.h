@@ -4,6 +4,7 @@
 #include "button_handler.h"
 #include "cvi_tdl.h"
 #include "oled_handler.h"
+#include "face_database.h"
 extern "C" {
 #include <cvi_comm.h>
 }
@@ -20,6 +21,7 @@ typedef struct {
     ButtonHandler_t *buttonHandler;
     FaceFeatureExtractor *featureExtractor;  // 特徵提取器
     OLEDHandler_t *oledHandler;
+    FaceDatabase_t *faceDatabase;  // 人臉資料庫
 } TDLHandler_t;
 
 CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath,
@@ -42,6 +44,8 @@ void *TDLHandler_ThreadRoutine(void *pHandle);
 void TDLHandler_SetButtonHandler(TDLHandler_t *pstHandler, ButtonHandler_t *buttonHandler);
 
 void TDLHandler_SetOLEDHandler(TDLHandler_t *pstHandler, OLEDHandler_t *oledHandler);
+
+void TDLHandler_SetFaceDatabase(TDLHandler_t *pstHandler, FaceDatabase_t *faceDatabase);
 
 CVI_S32 TDLHandler_CapturePhoto(VIDEO_FRAME_INFO_S *pstFrame, const char *filepath);
 

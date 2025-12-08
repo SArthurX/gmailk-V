@@ -18,6 +18,8 @@ std::map<int, time_t> g_mapTrackLockTime;
 pthread_mutex_t g_LockTimeMutex;
 std::map<int, std::vector<float>> g_mapTrackFeatures;
 pthread_mutex_t g_FeatureMutex;
+std::map<int, MatchResult> g_mapTrackMatchResults;
+pthread_mutex_t g_MatchResultMutex;
 
 void SharedData_Init() {
     g_bExit = false;
@@ -28,10 +30,12 @@ void SharedData_Init() {
     pthread_mutex_init(&g_SelectedTrackMutex, NULL);
     pthread_mutex_init(&g_LockTimeMutex, NULL);
     pthread_mutex_init(&g_FeatureMutex, NULL);
+    pthread_mutex_init(&g_MatchResultMutex, NULL);
     g_fCurrentFPS = 0.0f;
     g_iSelectedTrackID = -1;
     g_mapTrackLockTime.clear();
     g_mapTrackFeatures.clear();
+    g_mapTrackMatchResults.clear();
 }
 
 void SharedData_Cleanup() {
@@ -42,6 +46,8 @@ void SharedData_Cleanup() {
     pthread_mutex_destroy(&g_SelectedTrackMutex);
     pthread_mutex_destroy(&g_LockTimeMutex);
     pthread_mutex_destroy(&g_FeatureMutex);
+    pthread_mutex_destroy(&g_MatchResultMutex);
     g_mapTrackLockTime.clear();
     g_mapTrackFeatures.clear();
+    g_mapTrackMatchResults.clear();
 }

@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <map>
 #include <vector>
+#include <string>
 
 #include "cvi_tdl.h"
 
@@ -28,6 +29,15 @@ extern pthread_mutex_t g_LockTimeMutex;
 extern std::map<int, std::vector<float>> g_mapTrackFeatures;
 extern pthread_mutex_t g_FeatureMutex;
 
+// 軌跡匹配結果（track_id -> person info: name, similarity）
+struct MatchResult {
+    std::string name;
+    float similarity;
+    int person_id;
+};
+extern std::map<int, MatchResult> g_mapTrackMatchResults;
+extern pthread_mutex_t g_MatchResultMutex;
+
 extern float g_fCurrentFPS;
 extern pthread_mutex_t g_FPSMutex;
 
@@ -45,6 +55,9 @@ extern pthread_mutex_t g_FPSMutex;
 
 #define LOCK_FEATURE_MUTEX() pthread_mutex_lock(&g_FeatureMutex)
 #define UNLOCK_FEATURE_MUTEX() pthread_mutex_unlock(&g_FeatureMutex)
+
+#define LOCK_MATCH_RESULT_MUTEX() pthread_mutex_lock(&g_MatchResultMutex)
+#define UNLOCK_MATCH_RESULT_MUTEX() pthread_mutex_unlock(&g_MatchResultMutex)
 
 // 鎖定後需等待的秒數才開始提取特徵
 #define FEATURE_EXTRACT_LOCK_SECONDS 3

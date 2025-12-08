@@ -244,19 +244,35 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
                                                brush.color.r, brush.color.g, brush.color.b);
                 text_y_offset += 15;
                 
-                // If selected and has feature, display feature data
-                if (is_selected) {
+                // 檢查是否有匹配結果
+                LOCK_MATCH_RESULT_MUTEX();
+                bool hasMatch = (g_mapTrackMatchResults.find(pstTracker->info[i].id) != g_mapTrackMatchResults.end());
+                MatchResult matchResult;
+                if (hasMatch) {
+                    matchResult = g_mapTrackMatchResults[pstTracker->info[i].id];
+                }
+                UNLOCK_MATCH_RESULT_MUTEX();
+                
+                if (hasMatch) {
+                    // 顯示匹配的姓名和相似度
+                    char name_text[128];
+                    snprintf(name_text, sizeof(name_text), "%s (%.2f)", 
+                            matchResult.name.c_str(), matchResult.similarity);
+                    
+                    CVI_TDL_Service_ObjectWriteText(name_text, text_x, text_y - text_y_offset, pstFrame,
+                                                   0.0f, 255.0f, 0.0f);  // Green text for match
+                    text_y_offset += 15;
+                } else if (is_selected) {
+                    // 如果已選中但無匹配，顯示 "Unknown" 或特徵數據
                     LOCK_FEATURE_MUTEX();
-                    if (g_mapTrackFeatures.find(pstTracker->info[i].id) != g_mapTrackFeatures.end()) {
-                        const std::vector<float>& feature = g_mapTrackFeatures[pstTracker->info[i].id];
-                        
-                        // Display first 4 feature values
-                        char feat_text[80];
-                        snprintf(feat_text, sizeof(feat_text), "F:[%.2f,%.2f,%.2f,%.2f]", 
-                                feature[0], feature[1], feature[2], feature[3]);
-                        
-                        CVI_TDL_Service_ObjectWriteText(feat_text, text_x, text_y - text_y_offset, pstFrame,
-                                                       255.0f, 255.0f, 255.0f);  // White text
+                    bool hasFeature = (g_mapTrackFeatures.find(pstTracker->info[i].id) != g_mapTrackFeatures.end());
+                    UNLOCK_FEATURE_MUTEX();
+                    
+                    if (hasFeature) {
+                        // 已提取特徵但無匹配
+                        CVI_TDL_Service_ObjectWriteText("Unknown", text_x, text_y - text_y_offset, pstFrame,
+                                                       255.0f, 255.0f, 0.0f);  // Yellow text
+                        text_y_offset += 15;
                     } else {
                         // Show "Waiting..." if locked but not extracted yet
                         LOCK_LOCKTIME_MUTEX();
@@ -273,7 +289,6 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
                         }
                         UNLOCK_LOCKTIME_MUTEX();
                     }
-                    UNLOCK_FEATURE_MUTEX();
                 }
             }
             
@@ -296,6 +311,12 @@ void TDLHandler_SetButtonHandler(TDLHandler_t *pstHandler, ButtonHandler_t *butt
 void TDLHandler_SetOLEDHandler(TDLHandler_t *pstHandler, OLEDHandler_t *oledHandler) {
     if (pstHandler) {
         pstHandler->oledHandler = oledHandler;
+    }
+}
+
+void TDLHandler_SetFaceDatabase(TDLHandler_t *pstHandler, FaceDatabase_t *faceDatabase) {
+    if (pstHandler) {
+        pstHandler->faceDatabase = faceDatabase;
     }
 }
 
@@ -434,23 +455,59 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
                 else if (pressType == BUTTON_PRESS_LONG) {
                     std::cout << "🔘 Button pressed (LONG)" << std::endl;
                     
-                    // 長按：取消選中
+                    // 長按：註冊當前選中的人臉到資料庫
                     LOCK_SELECTED_TRACK_MUTEX();
-                    if (g_iSelectedTrackID != -1) {
-                        std::cout << "=== Track Deselected ===" << std::endl;
-                        std::cout << "Track ID " << g_iSelectedTrackID << " unlocked" << std::endl;
-                        std::cout << "Red frame removed" << std::endl;
-                        std::cout << "========================" << std::endl;
-                        g_iSelectedTrackID = -1;
-                        
-                        // 清理鎖定時間和特徵（可選）
-                        LOCK_LOCKTIME_MUTEX();
-                        g_mapTrackLockTime.clear();
-                        UNLOCK_LOCKTIME_MUTEX();
-                    } else {
-                        std::cout << "No track is currently selected" << std::endl;
-                    }
+                    int selectedID = g_iSelectedTrackID;
                     UNLOCK_SELECTED_TRACK_MUTEX();
+                    
+                    if (selectedID != -1) {
+                        // 檢查是否已經提取特徵
+                        LOCK_FEATURE_MUTEX();
+                        bool hasFeature = (g_mapTrackFeatures.find(selectedID) != g_mapTrackFeatures.end());
+                        std::vector<float> feature;
+                        if (hasFeature) {
+                            feature = g_mapTrackFeatures[selectedID];
+                        }
+                        UNLOCK_FEATURE_MUTEX();
+                        
+                        if (hasFeature && feature.size() == 128) {
+                            // 有特徵，註冊到資料庫
+                            if (pstHandler->faceDatabase && pstHandler->faceDatabase->initialized) {
+                                // 生成測試姓名（後續可改為用戶輸入）
+                                static int person_count = 0;
+                                char name[64];
+                                const char* test_names[] = {"張三", "李四", "王五", "趙六", "錢七", "孫八"};
+                                snprintf(name, sizeof(name), "%s", test_names[person_count % 6]);
+                                person_count++;
+                                
+                                int person_id = FaceDatabase_AddPerson(
+                                    pstHandler->faceDatabase,
+                                    name,
+                                    feature.data(),
+                                    feature.size()
+                                );
+                                
+                                if (person_id > 0) {
+                                    std::cout << "=== Face Registered ===" << std::endl;
+                                    std::cout << "✅ Person added to database!" << std::endl;
+                                    std::cout << "ID: " << person_id << std::endl;
+                                    std::cout << "Name: " << name << std::endl;
+                                    std::cout << "Track ID: " << selectedID << std::endl;
+                                    std::cout << "======================" << std::endl;
+                                } else {
+                                    std::cerr << "❌ Failed to add person to database" << std::endl;
+                                }
+                            } else {
+                                std::cerr << "❌ Face database not initialized" << std::endl;
+                            }
+                        } else {
+                            std::cout << "❌ No feature extracted for Track ID " << selectedID << std::endl;
+                            std::cout << "   Please wait for feature extraction to complete" << std::endl;
+                        }
+                    } else {
+                        std::cout << "❌ No face is currently locked" << std::endl;
+                        std::cout << "   Short press to lock a face first" << std::endl;
+                    }
                     
                     ButtonHandler_ClearPressType(pstHandler->buttonHandler);
                 }
@@ -526,6 +583,41 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
                                         stFaceMeta.info[i].feature.type = TYPE_INT8;
                                         
                                         std::cout << "✅ Feature extracted and stored for Track ID " << selectedID << std::endl;
+                                        
+                                        // 立即與資料庫比對
+                                        if (pstHandler->faceDatabase && pstHandler->faceDatabase->initialized) {
+                                            PersonInfo_t match_person;
+                                            int match_ret = FaceDatabase_Match(
+                                                pstHandler->faceDatabase,
+                                                feature.data(),
+                                                feature.size(),
+                                                &match_person
+                                            );
+                                            
+                                            if (match_ret == 0) {
+                                                // 找到匹配
+                                                std::cout << "Match Found!" << std::endl;
+                                                std::cout << "   Name: " << match_person.name << std::endl;
+                                                std::cout << "   Similarity: " << match_person.similarity << std::endl;
+                                                std::cout << "   Person ID: " << match_person.id << std::endl;
+                                                
+                                                // 存儲匹配結果
+                                                LOCK_MATCH_RESULT_MUTEX();
+                                                MatchResult result;
+                                                result.name = match_person.name;
+                                                result.similarity = match_person.similarity;
+                                                result.person_id = match_person.id;
+                                                g_mapTrackMatchResults[selectedID] = result;
+                                                UNLOCK_MATCH_RESULT_MUTEX();
+                                            } else {
+                                                std::cout << "No match found (similarity below threshold)" << std::endl;
+                                                
+                                                // 清除之前的匹配結果
+                                                LOCK_MATCH_RESULT_MUTEX();
+                                                g_mapTrackMatchResults.erase(selectedID);
+                                                UNLOCK_MATCH_RESULT_MUTEX();
+                                            }
+                                        }
                                     } else {
                                         std::cerr << "❌ Feature extraction failed for Track ID " << selectedID << std::endl;
                                     }

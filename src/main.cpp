@@ -13,6 +13,7 @@
 #include "venc_handler.h"
 #include "button_handler.h"
 #include "oled_handler.h"
+#include "face_database.h"
 
 
 static void SampleHandleSig(CVI_S32 signo) {
@@ -85,6 +86,19 @@ int main(int argc, char *argv[]) {
     return -1;
   }
   
+  // Initialize face database
+  FaceDatabase_t stFaceDatabase;
+  const char* db_path = "data/face_database.json";
+  s32Ret = FaceDatabase_Init(&stFaceDatabase, db_path, 0.4f);
+  if (s32Ret != 0) {
+    std::cerr << "Face database initialization failed!" << std::endl;
+    ButtonHandler_Cleanup(&stButtonHandler);
+    TDLHandler_Cleanup(&stTDLHandler);
+    SystemInit_Cleanup(&stMWContext);
+    SharedData_Cleanup();
+    return -1;
+  }
+  
   // Initialize OLED handler (I2C device 2) - optional
   OLEDHandler_t stOLEDHandler;
   std::memset(&stOLEDHandler, 0, sizeof(OLEDHandler_t));
@@ -104,6 +118,7 @@ int main(int argc, char *argv[]) {
   
   // link button handler and OLED handler to TDL handler
   TDLHandler_SetButtonHandler(&stTDLHandler, &stButtonHandler);
+  TDLHandler_SetFaceDatabase(&stTDLHandler, &stFaceDatabase);
   if (stOLEDHandler.initialized) {
     TDLHandler_SetOLEDHandler(&stTDLHandler, &stOLEDHandler);
   }
@@ -118,8 +133,10 @@ int main(int argc, char *argv[]) {
   pthread_create(&stButtonThread, nullptr, ButtonHandler_ThreadRoutine, &stButtonHandler);
 
   std::cout << "=== Face Detection Application Started ===" << std::endl;
-  std::cout << "Press button (GPIO 21) to capture photo" << std::endl;
+  std::cout << "Short press button (GPIO 21): Lock face for recognition" << std::endl;
+  std::cout << "Long press button (>3s): Register locked face to database" << std::endl;
   std::cout << "LED (GPIO 25) indicates button press" << std::endl;
+  std::cout << "Face database: " << db_path << std::endl;
   if (stOLEDHandler.initialized) {
     std::cout << "OLED display (I2C-2) shows face detection results" << std::endl;
   } else {
@@ -136,6 +153,7 @@ int main(int argc, char *argv[]) {
   if (stOLEDHandler.initialized) {
     OLEDHandler_Cleanup(&stOLEDHandler);
   }
+  FaceDatabase_Cleanup(&stFaceDatabase);
   ButtonHandler_Cleanup(&stButtonHandler);
   TDLHandler_Cleanup(&stTDLHandler);
   SystemInit_Cleanup(&stMWContext);
