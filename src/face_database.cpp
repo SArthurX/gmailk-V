@@ -97,6 +97,16 @@ int FaceDatabase_Save(FaceDatabase_t* database) {
       j["persons"].push_back(person_json);
     }
 
+    // 自動創建目錄（如果不存在）
+    std::string db_path_str(database->database_path);
+    size_t last_slash = db_path_str.find_last_of("/");
+    if (last_slash != std::string::npos) {
+      std::string dir_path = db_path_str.substr(0, last_slash);
+      // 使用 system 創建目錄（支援遞歸創建）
+      std::string mkdir_cmd = "mkdir -p " + dir_path;
+      system(mkdir_cmd.c_str());
+    }
+
     std::ofstream file(database->database_path);
     if (!file.is_open()) {
       std::cerr << "FaceDatabase_Save: Cannot open file for writing: " 
@@ -144,9 +154,23 @@ int FaceDatabase_AddPerson(FaceDatabase_t* database, const char* name,
   person.feature.assign(feature, feature + feature_size);
   person.similarity = 0.0f;
 
-  database->persons.push_back(person);
+  // 調試：輸出前5個特徵值
+  std::cout << "FaceDatabase: Adding person [" << new_id << "] " << name << std::endl;
+  std::cout << "  Feature (first 5): ";
+  for (int i = 0; i < std::min(5, feature_size); i++) {
+    std::cout << feature[i] << " ";
+  }
+  std::cout << std::endl;
+  
+  // 調試：輸出完整特徵向量 (前20個)
+  std::cout << "  Feature (first 20): [";
+  for (int i = 0; i < std::min(20, feature_size); i++) {
+    std::cout << feature[i];
+    if (i < 19) std::cout << ", ";
+  }
+  std::cout << "]" << std::endl;
 
-  std::cout << "FaceDatabase: Added person [" << new_id << "] " << name << std::endl;
+  database->persons.push_back(person);
 
   // 立即儲存
   FaceDatabase_Save(database);
@@ -199,6 +223,15 @@ int FaceDatabase_Match(FaceDatabase_t* database, const float* feature,
   float max_similarity = -1.0f;
   int best_match_idx = -1;
 
+  // 調試：輸出與所有人的相似度
+  std::cout << "[DEBUG] Similarity with all persons:" << std::endl;
+  std::cout << "  Query feature (first 20): [";
+  for (int i = 0; i < std::min(20, feature_size); i++) {
+    std::cout << feature[i];
+    if (i < 19) std::cout << ", ";
+  }
+  std::cout << "]" << std::endl;
+
   // 找出最相似的人員
   for (size_t i = 0; i < database->persons.size(); i++) {
     float similarity = FaceDatabase_CosineSimilarity(
@@ -206,6 +239,15 @@ int FaceDatabase_Match(FaceDatabase_t* database, const float* feature,
       database->persons[i].feature.data(), 
       feature_size
     );
+
+    std::cout << "  Person [" << database->persons[i].id << "] " 
+              << database->persons[i].name << ": " << similarity;
+    std::cout << " (first 20: [";
+    for (int j = 0; j < std::min(20, (int)database->persons[i].feature.size()); j++) {
+      std::cout << database->persons[i].feature[j];
+      if (j < 19) std::cout << ", ";
+    }
+    std::cout << "])" << std::endl;
 
     if (similarity > max_similarity) {
       max_similarity = similarity;

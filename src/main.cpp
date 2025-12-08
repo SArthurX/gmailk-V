@@ -89,7 +89,7 @@ int main(int argc, char *argv[]) {
   // Initialize face database
   FaceDatabase_t stFaceDatabase;
   const char* db_path = "data/face_database.json";
-  s32Ret = FaceDatabase_Init(&stFaceDatabase, db_path, 0.4f);
+  s32Ret = FaceDatabase_Init(&stFaceDatabase, db_path, 0.6f);
   if (s32Ret != 0) {
     std::cerr << "Face database initialization failed!" << std::endl;
     ButtonHandler_Cleanup(&stButtonHandler);

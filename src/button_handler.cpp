@@ -6,8 +6,8 @@
 #include "button_handler.h"
 #include "shared_data.h"
 
-// Long press threshold: 3 seconds (3,000,000 microseconds)
-#define LONG_PRESS_THRESHOLD_US 3000000
+// Long press threshold: 2 seconds (2,000,000 microseconds)
+#define LONG_PRESS_THRESHOLD_US 2000000
 
 int ButtonHandler_Init(ButtonHandler_t *handler, int buttonPin, int ledPin) {
     if (!handler) {
@@ -84,8 +84,8 @@ void *ButtonHandler_ThreadRoutine(void *pHandle) {
     bool button_was_pressed = false;
     
     std::cout << "Button monitoring started" << std::endl;
-    std::cout << "Short press (<3s): Lock current face" << std::endl;
-    std::cout << "Long press (>3s): Register face to database" << std::endl;
+    std::cout << "Short press: Re-identify face" << std::endl;
+    std::cout << "Long press (>2s): Register face to database" << std::endl;
     
     while (!g_bExit) {
         current_state = digitalRead(handler->buttonPin);

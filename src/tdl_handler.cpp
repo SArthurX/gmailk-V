@@ -396,6 +396,89 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
                 std::cerr << "DeepSORT tracking failed, ret=0x" << std::hex << s32Ret << std::endl;
             }
             
+            // === 自動鎖定機制：檢測在中心超過3秒的人臉 ===
+            if (stTracker.size > 0) {
+                float frame_center_x = stFrame.stVFrame.u32Width / 2.0f;
+                float frame_center_y = stFrame.stVFrame.u32Height / 2.0f;
+                float center_threshold = 80.0f;
+                
+                // 找到當前在中心的人臉
+                int center_face_idx = -1;
+                float min_distance = FLT_MAX;
+                
+                for (uint32_t i = 0; i < stFaceMeta.size; i++) {
+                    float face_center_x = (stFaceMeta.info[i].bbox.x1 + stFaceMeta.info[i].bbox.x2) / 2.0f;
+                    float face_center_y = (stFaceMeta.info[i].bbox.y1 + stFaceMeta.info[i].bbox.y2) / 2.0f;
+                    
+                    float dx = face_center_x - frame_center_x;
+                    float dy = face_center_y - frame_center_y;
+                    float distance = sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < center_threshold && distance < min_distance) {
+                        min_distance = distance;
+                        center_face_idx = i;
+                    }
+                }
+                
+                if (center_face_idx != -1 && center_face_idx < (int)stTracker.size) {
+                    int center_track_id = stTracker.info[center_face_idx].id;
+                    
+                    // 記錄或更新該人臉在中心的時間
+                    LOCK_CENTERTIME_MUTEX();
+                    time_t now = time(NULL);
+                    if (g_mapTrackCenterTime.find(center_track_id) == g_mapTrackCenterTime.end()) {
+                        // 第一次出現在中心
+                        g_mapTrackCenterTime[center_track_id] = now;
+                    }
+                    
+                    time_t center_time = g_mapTrackCenterTime[center_track_id];
+                    int duration = (int)(now - center_time);
+                    UNLOCK_CENTERTIME_MUTEX();
+                    
+                    // 檢查是否已經被鎖定
+                    LOCK_SELECTED_TRACK_MUTEX();
+                    bool is_already_locked = (g_iSelectedTrackID == center_track_id);
+                    UNLOCK_SELECTED_TRACK_MUTEX();
+                    
+                    // 如果在中心超過3秒且未被鎖定，自動鎖定
+                    if (duration >= 3 && !is_already_locked) {
+                        LOCK_SELECTED_TRACK_MUTEX();
+                        g_iSelectedTrackID = center_track_id;
+                        UNLOCK_SELECTED_TRACK_MUTEX();
+                        
+                        // 記錄鎖定時間
+                        LOCK_LOCKTIME_MUTEX();
+                        g_mapTrackLockTime[center_track_id] = now;
+                        UNLOCK_LOCKTIME_MUTEX();
+                        
+                        std::cout << "=== Auto-Lock Triggered ===" << std::endl;
+                        std::cout << "Track ID: " << center_track_id << std::endl;
+                        std::cout << "🎯 Face at center for " << duration << "s - Auto-locked!" << std::endl;
+                        std::cout << "Feature extraction starting..." << std::endl;
+                        std::cout << "===========================" << std::endl;
+                    }
+                }
+                
+                // 清除不在中心的人臉的中心時間記錄
+                LOCK_CENTERTIME_MUTEX();
+                std::vector<int> to_remove;
+                for (auto& pair : g_mapTrackCenterTime) {
+                    bool still_in_center = false;
+                    if (center_face_idx != -1 && center_face_idx < (int)stTracker.size) {
+                        if (stTracker.info[center_face_idx].id == pair.first) {
+                            still_in_center = true;
+                        }
+                    }
+                    if (!still_in_center) {
+                        to_remove.push_back(pair.first);
+                    }
+                }
+                for (int id : to_remove) {
+                    g_mapTrackCenterTime.erase(id);
+                }
+                UNLOCK_CENTERTIME_MUTEX();
+            }
+            
             // === 按鈕處理（在追蹤完成後） ===
             if (pstHandler->buttonHandler) {
                 ButtonPressType_t pressType = ButtonHandler_GetPressType(pstHandler->buttonHandler);
@@ -403,51 +486,33 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
                 if (pressType == BUTTON_PRESS_SHORT) {
                     std::cout << "🔘 Button pressed (SHORT)" << std::endl;
                     
-                    // 短按：選中當前在中心準星的人臉
-                    if (stTracker.size > 0) {
-                        // 找到中心的人臉
-                        float frame_center_x = stFrame.stVFrame.u32Width / 2.0f;
-                        float frame_center_y = stFrame.stVFrame.u32Height / 2.0f;
-                        float center_threshold = 80.0f;
+                    // 短按：重新識別當前鎖定的人臉
+                    LOCK_SELECTED_TRACK_MUTEX();
+                    int selectedID = g_iSelectedTrackID;
+                    UNLOCK_SELECTED_TRACK_MUTEX();
+                    
+                    if (selectedID != -1) {
+                        // 清除舊的特徵和匹配結果
+                        LOCK_FEATURE_MUTEX();
+                        g_mapTrackFeatures.erase(selectedID);
+                        UNLOCK_FEATURE_MUTEX();
                         
-                        int center_face_idx = -1;
-                        float min_distance = FLT_MAX;
+                        LOCK_MATCH_RESULT_MUTEX();
+                        g_mapTrackMatchResults.erase(selectedID);
+                        UNLOCK_MATCH_RESULT_MUTEX();
                         
-                        for (uint32_t i = 0; i < stFaceMeta.size; i++) {
-                            float face_center_x = (stFaceMeta.info[i].bbox.x1 + stFaceMeta.info[i].bbox.x2) / 2.0f;
-                            float face_center_y = (stFaceMeta.info[i].bbox.y1 + stFaceMeta.info[i].bbox.y2) / 2.0f;
-                            
-                            float dx = face_center_x - frame_center_x;
-                            float dy = face_center_y - frame_center_y;
-                            float distance = sqrt(dx * dx + dy * dy);
-                            
-                            if (distance < center_threshold && distance < min_distance) {
-                                min_distance = distance;
-                                center_face_idx = i;
-                            }
-                        }
+                        // 重置鎖定時間，觸發重新提取特徵
+                        LOCK_LOCKTIME_MUTEX();
+                        g_mapTrackLockTime[selectedID] = time(NULL);
+                        UNLOCK_LOCKTIME_MUTEX();
                         
-                        if (center_face_idx != -1 && center_face_idx < (int)stTracker.size) {
-                            LOCK_SELECTED_TRACK_MUTEX();
-                            g_iSelectedTrackID = stTracker.info[center_face_idx].id;
-                            UNLOCK_SELECTED_TRACK_MUTEX();
-                            
-                            // 記錄選中時間
-                            LOCK_LOCKTIME_MUTEX();
-                            g_mapTrackLockTime[g_iSelectedTrackID] = time(NULL);
-                            UNLOCK_LOCKTIME_MUTEX();
-                            
-                            std::cout << "=== Track Selected ===" << std::endl;
-                            std::cout << "Track ID: " << g_iSelectedTrackID << std::endl;
-                            std::cout << "🎯 Face locked! Feature extraction will start in " 
-                                      << FEATURE_EXTRACT_LOCK_SECONDS << " seconds..." << std::endl;
-                            std::cout << "=====================" << std::endl;
-                        } else {
-                            std::cout << "❌ No face at center crosshair (threshold: " << center_threshold << "px)" << std::endl;
-                            std::cout << "   Move a face to center and press again" << std::endl;
-                        }
+                        std::cout << "=== Re-identification Started ===" << std::endl;
+                        std::cout << "Track ID: " << selectedID << std::endl;
+                        std::cout << "🔄 Cleared previous data, re-extracting feature..." << std::endl;
+                        std::cout << "=================================" << std::endl;
                     } else {
-                        std::cout << "❌ No faces detected (stTracker.size = " << stTracker.size << ")" << std::endl;
+                        std::cout << "❌ No face is currently locked" << std::endl;
+                        std::cout << "   Wait for a face to be at center for 3 seconds" << std::endl;
                     }
                     
                     ButtonHandler_ClearPressType(pstHandler->buttonHandler);
@@ -476,7 +541,7 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
                                 // 生成測試姓名（後續可改為用戶輸入）
                                 static int person_count = 0;
                                 char name[64];
-                                const char* test_names[] = {"張三", "李四", "王五", "趙六", "錢七", "孫八"};
+                                const char* test_names[] = {"eddie", "nany", "lol", "ccc", "cocoya", "sunba"};
                                 snprintf(name, sizeof(name), "%s", test_names[person_count % 6]);
                                 person_count++;
                                 
@@ -514,116 +579,97 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
             }
             
             // Extract features for tracked faces (if feature extractor is available)
-            // 只對選中且鎖定超過 3 秒的人臉提取特徵
+            // 對選中的人臉立即提取特徵（已在自動鎖定時等待3秒）
             if (pstHandler->featureExtractor && stTracker.size > 0) {
                 LOCK_SELECTED_TRACK_MUTEX();
                 int selectedID = g_iSelectedTrackID;
                 UNLOCK_SELECTED_TRACK_MUTEX();
                 
                 if (selectedID != -1) {
-                    // 檢查是否鎖定超過 3 秒
-                    LOCK_LOCKTIME_MUTEX();
-                    time_t lockTime = 0;
-                    if (g_mapTrackLockTime.find(selectedID) != g_mapTrackLockTime.end()) {
-                        lockTime = g_mapTrackLockTime[selectedID];
-                    }
-                    UNLOCK_LOCKTIME_MUTEX();
-                    
-                    time_t now = time(NULL);
-                    int lockDuration = (int)(now - lockTime);
-                    
-                    // 顯示倒計時（僅在需要時）
-                    static int last_remaining = -1;
-                    if (lockDuration < FEATURE_EXTRACT_LOCK_SECONDS) {
-                        int remaining = FEATURE_EXTRACT_LOCK_SECONDS - lockDuration;
-                        if (remaining != last_remaining) {
-                            std::cout << "⏱️  Track ID " << selectedID << " locked, feature extraction in " 
-                                      << remaining << "s..." << std::endl;
-                            last_remaining = remaining;
-                        }
-                    } else {
-                        last_remaining = -1;
-                        
-                        // 找到選中的軌跡並提取特徵
-                        for (uint32_t i = 0; i < stFaceMeta.size; i++) {
-                            if (stTracker.info[i].id == selectedID) {
-                                // 檢查是否已經提取過特徵
-                                LOCK_FEATURE_MUTEX();
-                                bool hasFeature = (g_mapTrackFeatures.find(selectedID) != g_mapTrackFeatures.end());
-                                UNLOCK_FEATURE_MUTEX();
+                    // 找到選中的軌跡並提取特徵
+                    for (uint32_t i = 0; i < stFaceMeta.size; i++) {
+                        if (stTracker.info[i].id == selectedID) {
+                            // 檢查是否已經提取過特徵
+                            LOCK_FEATURE_MUTEX();
+                            bool hasFeature = (g_mapTrackFeatures.find(selectedID) != g_mapTrackFeatures.end());
+                            UNLOCK_FEATURE_MUTEX();
+                            
+                            if (!hasFeature) {
+                                std::cout << "🔍 Extracting feature for Track ID " << selectedID << "..." << std::endl;
                                 
-                                if (!hasFeature) {
-                                    std::cout << "🔍 Extracting feature for locked Track ID " << selectedID 
-                                              << " (locked for " << lockDuration << "s)..." << std::endl;
-                                    
-                                    std::vector<float> feature;
-                                    CVI_S32 feat_ret = pstHandler->featureExtractor->extractFeature(
-                                        &stFrame,
-                                        &stFaceMeta.info[i],
-                                        feature
-                                    );
-                                    
-                                    if (feat_ret == CVI_SUCCESS && feature.size() == 128) {
-                                        // 存儲特徵到全局 map
-                                        LOCK_FEATURE_MUTEX();
-                                        g_mapTrackFeatures[selectedID] = feature;
-                                        UNLOCK_FEATURE_MUTEX();
-                                        
-                                        // 填充到 face meta（供 DeepSORT 使用）
-                                        if (!stFaceMeta.info[i].feature.ptr) {
-                                            stFaceMeta.info[i].feature.ptr = (int8_t*)malloc(128);
-                                        }
-                                        
-                                        for (int j = 0; j < 128; j++) {
-                                            float val = feature[j] * 127.0f;
-                                            val = val < -128.0f ? -128.0f : (val > 127.0f ? 127.0f : val);
-                                            stFaceMeta.info[i].feature.ptr[j] = (int8_t)val;
-                                        }
-                                        stFaceMeta.info[i].feature.size = 128;
-                                        stFaceMeta.info[i].feature.type = TYPE_INT8;
-                                        
-                                        std::cout << "✅ Feature extracted and stored for Track ID " << selectedID << std::endl;
-                                        
-                                        // 立即與資料庫比對
-                                        if (pstHandler->faceDatabase && pstHandler->faceDatabase->initialized) {
-                                            PersonInfo_t match_person;
-                                            int match_ret = FaceDatabase_Match(
-                                                pstHandler->faceDatabase,
-                                                feature.data(),
-                                                feature.size(),
-                                                &match_person
-                                            );
-                                            
-                                            if (match_ret == 0) {
-                                                // 找到匹配
-                                                std::cout << "Match Found!" << std::endl;
-                                                std::cout << "   Name: " << match_person.name << std::endl;
-                                                std::cout << "   Similarity: " << match_person.similarity << std::endl;
-                                                std::cout << "   Person ID: " << match_person.id << std::endl;
-                                                
-                                                // 存儲匹配結果
-                                                LOCK_MATCH_RESULT_MUTEX();
-                                                MatchResult result;
-                                                result.name = match_person.name;
-                                                result.similarity = match_person.similarity;
-                                                result.person_id = match_person.id;
-                                                g_mapTrackMatchResults[selectedID] = result;
-                                                UNLOCK_MATCH_RESULT_MUTEX();
-                                            } else {
-                                                std::cout << "No match found (similarity below threshold)" << std::endl;
-                                                
-                                                // 清除之前的匹配結果
-                                                LOCK_MATCH_RESULT_MUTEX();
-                                                g_mapTrackMatchResults.erase(selectedID);
-                                                UNLOCK_MATCH_RESULT_MUTEX();
-                                            }
-                                        }
-                                    } else {
-                                        std::cerr << "❌ Feature extraction failed for Track ID " << selectedID << std::endl;
+                                std::vector<float> feature;
+                                CVI_S32 feat_ret = pstHandler->featureExtractor->extractFeature(
+                                    &stFrame,
+                                    &stFaceMeta.info[i],
+                                    feature
+                                );
+                                
+                                if (feat_ret == CVI_SUCCESS && feature.size() == 128) {
+                                    // 調試：輸出前5個特徵值
+                                    std::cout << "✅ Feature extracted for Track ID " << selectedID << std::endl;
+                                    std::cout << "  Feature (first 5): ";
+                                    for (int k = 0; k < 5; k++) {
+                                        std::cout << feature[k] << " ";
                                     }
+                                    std::cout << std::endl;
+                                    
+                                    // 存儲特徵到全局 map
+                                    LOCK_FEATURE_MUTEX();
+                                    g_mapTrackFeatures[selectedID] = feature;
+                                    UNLOCK_FEATURE_MUTEX();
+                                    
+                                    // 填充到 face meta（供 DeepSORT 使用）
+                                    if (!stFaceMeta.info[i].feature.ptr) {
+                                        stFaceMeta.info[i].feature.ptr = (int8_t*)malloc(128);
+                                    }
+                                    
+                                    for (int j = 0; j < 128; j++) {
+                                        float val = feature[j] * 127.0f;
+                                        val = val < -128.0f ? -128.0f : (val > 127.0f ? 127.0f : val);
+                                        stFaceMeta.info[i].feature.ptr[j] = (int8_t)val;
+                                    }
+                                    stFaceMeta.info[i].feature.size = 128;
+                                    stFaceMeta.info[i].feature.type = TYPE_INT8;
+                                    
+                                    // 立即與資料庫比對
+                                    if (pstHandler->faceDatabase && pstHandler->faceDatabase->initialized) {
+                                        PersonInfo_t match_person;
+                                        int match_ret = FaceDatabase_Match(
+                                            pstHandler->faceDatabase,
+                                            feature.data(),
+                                            feature.size(),
+                                            &match_person
+                                        );
+                                        
+                                        if (match_ret == 0) {
+                                            // 找到匹配
+                                            std::cout << "🎯 Match Found!" << std::endl;
+                                            std::cout << "   Name: " << match_person.name << std::endl;
+                                            std::cout << "   Similarity: " << match_person.similarity << std::endl;
+                                            std::cout << "   Person ID: " << match_person.id << std::endl;
+                                            
+                                            // 存儲匹配結果
+                                            LOCK_MATCH_RESULT_MUTEX();
+                                            MatchResult result;
+                                            result.name = match_person.name;
+                                            result.similarity = match_person.similarity;
+                                            result.person_id = match_person.id;
+                                            g_mapTrackMatchResults[selectedID] = result;
+                                            UNLOCK_MATCH_RESULT_MUTEX();
+                                        } else {
+                                            std::cout << "❌ No match found (similarity below threshold)" << std::endl;
+                                            
+                                            // 清除之前的匹配結果
+                                            LOCK_MATCH_RESULT_MUTEX();
+                                            g_mapTrackMatchResults.erase(selectedID);
+                                            UNLOCK_MATCH_RESULT_MUTEX();
+                                        }
+                                    }
+                                } else {
+                                    std::cerr << "❌ Feature extraction failed for Track ID " << selectedID << std::endl;
                                 }
-                                break;
                             }
+                            break;
                         }
                     }
                 }
@@ -647,34 +693,34 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
             fps_t0 = fps_t1;
         }
         
-        if (stFaceMeta.size > 0) {
-            std::cout << "=== Face Detection & Tracking Results ===" << std::endl;
-            std::cout << "Face count: " << stFaceMeta.size << std::endl;
-            std::cout << "Tracker count: " << stTracker.size << std::endl;
-            std::cout << "Inference time: " << (float)execution_time / 1000 << " ms" << std::endl;
-            std::cout << "FPS: " << current_fps << std::endl;
-            std::cout << "Frame size: " << stFrame.stVFrame.u32Width << "x" 
-                      << stFrame.stVFrame.u32Height << std::endl;
+        // if (stFaceMeta.size > 0) {
+        //     std::cout << "=== Face Detection & Tracking Results ===" << std::endl;
+        //     std::cout << "Face count: " << stFaceMeta.size << std::endl;
+        //     std::cout << "Tracker count: " << stTracker.size << std::endl;
+        //     std::cout << "Inference time: " << (float)execution_time / 1000 << " ms" << std::endl;
+        //     std::cout << "FPS: " << current_fps << std::endl;
+        //     std::cout << "Frame size: " << stFrame.stVFrame.u32Width << "x" 
+        //               << stFrame.stVFrame.u32Height << std::endl;
             
-            for (uint32_t i = 0; i < stTracker.size; i++) {
-                const char* state_str = "UNKNOWN";
-                switch(stTracker.info[i].state) {
-                    case CVI_TRACKER_NEW: state_str = "NEW"; break;
-                    case CVI_TRACKER_UNSTABLE: state_str = "UNSTABLE"; break;
-                    case CVI_TRACKER_STABLE: state_str = "STABLE"; break;
-                }
+        //     for (uint32_t i = 0; i < stTracker.size; i++) {
+        //         const char* state_str = "UNKNOWN";
+        //         switch(stTracker.info[i].state) {
+        //             case CVI_TRACKER_NEW: state_str = "NEW"; break;
+        //             case CVI_TRACKER_UNSTABLE: state_str = "UNSTABLE"; break;
+        //             case CVI_TRACKER_STABLE: state_str = "STABLE"; break;
+        //         }
                 
-                std::cout << "Track[" << i << "] ID=" << stTracker.info[i].id
-                          << " state=" << state_str
-                          << " bbox: x1=" << stTracker.info[i].bbox.x1 << ", "
-                          << "y1=" << stTracker.info[i].bbox.y1 << ", "
-                          << "x2=" << stTracker.info[i].bbox.x2 << ", "
-                          << "y2=" << stTracker.info[i].bbox.y2 << std::endl;
-            }
-            std::cout << "========================================" << std::endl;
-        } else if (stFaceMeta.size != s_u32LastFaceSize) {
-            std::cout << "No face detected" << std::endl;
-        }
+        //         std::cout << "Track[" << i << "] ID=" << stTracker.info[i].id
+        //                   << " state=" << state_str
+        //                   << " bbox: x1=" << stTracker.info[i].bbox.x1 << ", "
+        //                   << "y1=" << stTracker.info[i].bbox.y1 << ", "
+        //                   << "x2=" << stTracker.info[i].bbox.x2 << ", "
+        //                   << "y2=" << stTracker.info[i].bbox.y2 << std::endl;
+        //     }
+        //     std::cout << "========================================" << std::endl;
+        // } else if (stFaceMeta.size != s_u32LastFaceSize) {
+        //     std::cout << "No face detected" << std::endl;
+        // }
         
         s_u32LastFaceSize = stFaceMeta.size;
         

@@ -25,6 +25,10 @@ extern pthread_mutex_t g_SelectedTrackMutex;
 extern std::map<int, time_t> g_mapTrackLockTime;
 extern pthread_mutex_t g_LockTimeMutex;
 
+// 軌跡在中心的時間記錄（track_id -> 第一次出現在中心的時間）
+extern std::map<int, time_t> g_mapTrackCenterTime;
+extern pthread_mutex_t g_CenterTimeMutex;
+
 // 軌跡特徵數據（track_id -> 128-dim feature）
 extern std::map<int, std::vector<float>> g_mapTrackFeatures;
 extern pthread_mutex_t g_FeatureMutex;
@@ -52,6 +56,9 @@ extern pthread_mutex_t g_FPSMutex;
 
 #define LOCK_LOCKTIME_MUTEX() pthread_mutex_lock(&g_LockTimeMutex)
 #define UNLOCK_LOCKTIME_MUTEX() pthread_mutex_unlock(&g_LockTimeMutex)
+
+#define LOCK_CENTERTIME_MUTEX() pthread_mutex_lock(&g_CenterTimeMutex)
+#define UNLOCK_CENTERTIME_MUTEX() pthread_mutex_unlock(&g_CenterTimeMutex)
 
 #define LOCK_FEATURE_MUTEX() pthread_mutex_lock(&g_FeatureMutex)
 #define UNLOCK_FEATURE_MUTEX() pthread_mutex_unlock(&g_FeatureMutex)

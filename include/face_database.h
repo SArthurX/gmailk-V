@@ -17,9 +17,13 @@ typedef struct {
 } PersonInfo_t;
 
 // 資料庫處理器
+// 注意：
+// - persons 是記憶體中的資料庫（即時更新）
+// - database_path 指向持久化檔案（啟動時讀取，註冊時寫入）
+// - 運行中手動修改檔案不會自動重載到記憶體
 typedef struct {
   std::string database_path;
-  std::vector<PersonInfo_t> persons;
+  std::vector<PersonInfo_t> persons;  // 記憶體中的資料庫
   bool initialized;
   float similarity_threshold;  // 相似度閾值
 } FaceDatabase_t;
@@ -54,6 +58,7 @@ int FaceDatabase_Save(FaceDatabase_t* database);
  * @param feature 128維特徵向量
  * @param feature_size 特徵向量大小（應為 128）
  * @return 新增的人員 ID，失敗返回 -1
+ * @note 會立即更新記憶體資料庫並寫入檔案
  */
 int FaceDatabase_AddPerson(FaceDatabase_t* database, const char* name, 
                             const float* feature, int feature_size);
@@ -65,6 +70,7 @@ int FaceDatabase_AddPerson(FaceDatabase_t* database, const char* name,
  * @param feature_size 特徵向量大小（應為 128）
  * @param match_person 輸出：匹配的人員資訊（如果有）
  * @return 0 找到匹配，-1 沒有匹配
+ * @note 在記憶體資料庫中進行比對，不讀取檔案
  */
 int FaceDatabase_Match(FaceDatabase_t* database, const float* feature, 
                        int feature_size, PersonInfo_t* match_person);
