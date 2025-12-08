@@ -114,7 +114,13 @@ CVI_S32 SystemInit_SetupVPSS(SystemConfig_t *pstConfig) {
                             pstConfig->stVencSize.u32Height, 
                             VI_PIXEL_FORMAT, true);
     
-    std::cout << "VPSS configured: 1 group, 1 channels" << std::endl;
+    // 添加 180 度旋轉 (垂直翻轉 + 水平鏡像)
+    pstVpssConfig->astVpssChnAttr[0].bFlip = CVI_TRUE;
+    pstVpssConfig->astVpssChnAttr[0].bMirror = CVI_TRUE;
+    pstVpssConfig->astVpssChnAttr[1].bFlip = CVI_TRUE;
+    pstVpssConfig->astVpssChnAttr[1].bMirror = CVI_TRUE;
+    
+    std::cout << "VPSS configured: 1 group, 2 channels (with 180° rotation)" << std::endl;
     return CVI_SUCCESS;
 }
 
