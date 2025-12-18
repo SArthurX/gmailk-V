@@ -45,7 +45,7 @@ int main(int argc, char *argv[]) {
   // Check for -oled flag
   bool enable_oled = false;
   for (int i = 2; i < argc; i++) {
-    if (std::string(argv[i]) == "-oled") {
+    if (std::string(argv[i]) == "--oled") {
       enable_oled = true;
       break;
     }
@@ -99,13 +99,13 @@ int main(int argc, char *argv[]) {
     return -1;
   }
   
-  // Initialize OLED handler (I2C device 2) - optional
+  // Initialize OLED handler (I2C device 3) - optional
   OLEDHandler_t stOLEDHandler;
   std::memset(&stOLEDHandler, 0, sizeof(OLEDHandler_t));
   
   if (enable_oled) {
     std::cout << "Attempting to initialize OLED display..." << std::endl;
-    s32Ret = OLEDHandler_Init(&stOLEDHandler, 2);
+    s32Ret = OLEDHandler_Init(&stOLEDHandler, 3);
     if (s32Ret != 0) {
       std::cerr << "Warning: OLED handler initialization failed!" << std::endl;
       std::cerr << "Warning: OLED display will be disabled" << std::endl;
@@ -113,7 +113,7 @@ int main(int argc, char *argv[]) {
       std::cout << "OLED display initialized successfully" << std::endl;
     }
   } else {
-    std::cout << "OLED display disabled (use -oled flag to enable)" << std::endl;
+    std::cout << "OLED display disabled (use --oled flag to enable)" << std::endl;
   }
   
   // link button handler and OLED handler to TDL handler

@@ -7,13 +7,10 @@
 extern "C" {
 #endif
 
-// OLED 螢幕尺寸常數
 #define OLED_WIDTH 128
 #define OLED_HEIGHT 64
-
-// 原始影像尺寸常數
-#define FRAME_WIDTH 1920
-#define FRAME_HEIGHT 1080
+#define FRAME_WIDTH 1280
+#define FRAME_HEIGHT 720
 
 // 人臉框結構
 typedef struct {

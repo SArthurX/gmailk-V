@@ -99,12 +99,17 @@ int OLEDHandler_ClearScreen(OLEDHandler_t *pstHandler) {
 
 void OLEDHandler_ConvertCoordinate(float src_x, float src_y, 
                                    uint8_t *dst_x, uint8_t *dst_y) {
-    // 將 1920x1080 坐標映射到 128x64
+    //  1280x720 mapping to 128x64
     float scale_x = (float)OLED_WIDTH / (float)FRAME_WIDTH;
     float scale_y = (float)OLED_HEIGHT / (float)FRAME_HEIGHT;
     
     int x = (int)(src_x * scale_x);
     int y = (int)(src_y * scale_y);
+    
+
+    // flip vertically if needed
+    // x = OLED_WIDTH - 1 - x;
+    // y = OLED_HEIGHT - 1 - y;
     
     // 邊界檢查
     if (x < 0) x = 0;
