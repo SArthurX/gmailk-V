@@ -4,6 +4,7 @@
 #include <iostream>
 #include <cmath>
 #include <algorithm>
+#include <filesystem>
 
 using json = nlohmann::json;
 
@@ -33,15 +34,13 @@ int FaceDatabase_Init(FaceDatabase_t* database, const char* db_path, float thres
 
 // 載入資料庫
 int FaceDatabase_Load(FaceDatabase_t* database) {
-  if (!database) {
+  if (!database) 
     return -1;
-  }
+
 
   std::ifstream file(database->database_path);
-  if (!file.is_open()) {
-    // 檔案不存在，返回失敗（會創建新資料庫）
+  if (!file.is_open()) 
     return -1;
-  }
 
   try {
     json j;
@@ -97,14 +96,12 @@ int FaceDatabase_Save(FaceDatabase_t* database) {
       j["persons"].push_back(person_json);
     }
 
-    // 自動創建目錄（如果不存在）
-    std::string db_path_str(database->database_path);
-    size_t last_slash = db_path_str.find_last_of("/");
-    if (last_slash != std::string::npos) {
-      std::string dir_path = db_path_str.substr(0, last_slash);
-      // 使用 system 創建目錄（支援遞歸創建）
-      std::string mkdir_cmd = "mkdir -p " + dir_path;
-      system(mkdir_cmd.c_str());
+    try {
+        std::filesystem::path p(database->database_path);
+        if (p.has_parent_path()) 
+            std::filesystem::create_directories(p.parent_path());
+    } catch (const std::exception& e) {
+        std::cerr << "Directory error: " << e.what() << std::endl;
     }
 
     std::ofstream file(database->database_path);
@@ -143,9 +140,8 @@ int FaceDatabase_AddPerson(FaceDatabase_t* database, const char* name,
 
   // 生成新的 ID
   int new_id = 1;
-  if (!database->persons.empty()) {
+  if (!database->persons.empty()) 
     new_id = database->persons.back().id + 1;
-  }
 
   // 創建新人員
   PersonInfo_t person;
@@ -180,9 +176,8 @@ int FaceDatabase_AddPerson(FaceDatabase_t* database, const char* name,
 
 // 計算餘弦相似度
 float FaceDatabase_CosineSimilarity(const float* feature1, const float* feature2, int size) {
-  if (!feature1 || !feature2 || size <= 0) {
+  if (!feature1 || !feature2 || size <= 0)
     return 0.0f;
-  }
 
   float dot_product = 0.0f;
   float norm1 = 0.0f;
@@ -197,9 +192,8 @@ float FaceDatabase_CosineSimilarity(const float* feature1, const float* feature2
   norm1 = std::sqrt(norm1);
   norm2 = std::sqrt(norm2);
 
-  if (norm1 < 1e-6 || norm2 < 1e-6) {
+  if (norm1 < 1e-6 || norm2 < 1e-6)
     return 0.0f;
-  }
 
   return dot_product / (norm1 * norm2);
 }
@@ -207,18 +201,17 @@ float FaceDatabase_CosineSimilarity(const float* feature1, const float* feature2
 // 比對人臉
 int FaceDatabase_Match(FaceDatabase_t* database, const float* feature, 
                        int feature_size, PersonInfo_t* match_person) {
-  if (!database || !database->initialized || !feature || !match_person) {
+  if (!database || !database->initialized || !feature || !match_person)
     return -1;
-  }
 
   if (feature_size != 128) {
     std::cerr << "FaceDatabase_Match: Invalid feature size: " << feature_size << std::endl;
     return -1;
   }
 
-  if (database->persons.empty()) {
+  if (database->persons.empty())
     return -1;  // 資料庫為空
-  }
+
 
   float max_similarity = -1.0f;
   int best_match_idx = -1;
