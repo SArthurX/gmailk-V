@@ -6,7 +6,6 @@ set(PROJECT_ROOT ${CMAKE_SOURCE_DIR})
 include(${CMAKE_SOURCE_DIR}/tools/common.cmake)
 
 
-
 file(GLOB CPP_SOURCES "src/*.cpp")
 file(GLOB C_SOURCES "src/*.c")
 

@@ -6,10 +6,8 @@ if(NOT DEFINED CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type: Debug or Release")
 endif()
 
-
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
 
 if(CHIP STREQUAL "CV181X")
     add_compile_definitions(CV181X __CV181X__)
@@ -60,9 +58,13 @@ include_directories(
     ${PROJECT_ROOT}/include/system
     ${PROJECT_ROOT}/include/system/linux
     ${PROJECT_ROOT}/include/tdl
+    ${PROJECT_ROOT}/include/utility
+
     ${PROJECT_ROOT}/common
+
     ${PROJECT_ROOT}/src/3rdparty
     ${PROJECT_ROOT}/src/drivers/ssd1306
+    
     ${OPENCV_INCLUDE_DIR}
     ${OPENCV_INCLUDE_DIR}/opencv4
     ${NCNN_INCLUDE_DIR}
