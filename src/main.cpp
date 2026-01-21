@@ -109,12 +109,10 @@ int main(int argc, char *argv[]) {
     if (s32Ret != 0) {
       std::cerr << "Warning: OLED handler initialization failed!" << std::endl;
       std::cerr << "Warning: OLED display will be disabled" << std::endl;
-    } else {
+    } else
       std::cout << "OLED display initialized successfully" << std::endl;
-    }
-  } else {
+  } else 
     std::cout << "OLED display disabled (use --oled flag to enable)" << std::endl;
-  }
   
   // link button handler and OLED handler to TDL handler
   TDLHandler_SetButtonHandler(&stTDLHandler, &stButtonHandler);
@@ -137,11 +135,10 @@ int main(int argc, char *argv[]) {
   std::cout << "Long press button (>3s): Register locked face to database" << std::endl;
   std::cout << "LED (GPIO 25) indicates button press" << std::endl;
   std::cout << "Face database: " << db_path << std::endl;
-  if (stOLEDHandler.initialized) {
+  if (stOLEDHandler.initialized)
     std::cout << "OLED display (I2C-2) shows face detection results" << std::endl;
-  } else {
+  else
     std::cout << "OLED display disabled (not connected or initialization failed)" << std::endl;
-  }
   std::cout << "Press Ctrl+C to stop..." << std::endl;
 
   pthread_join(stVencThread, nullptr);
@@ -150,9 +147,8 @@ int main(int argc, char *argv[]) {
 
   std::cout << "=== Cleaning up resources ===" << std::endl;
 
-  if (stOLEDHandler.initialized) {
+  if (stOLEDHandler.initialized)
     OLEDHandler_Cleanup(&stOLEDHandler);
-  }
   FaceDatabase_Cleanup(&stFaceDatabase);
   ButtonHandler_Cleanup(&stButtonHandler);
   TDLHandler_Cleanup(&stTDLHandler);
@@ -162,5 +158,3 @@ int main(int argc, char *argv[]) {
   std::cout << "=== Application exited gracefully ===" << std::endl;
   return 0;
 }
-
-

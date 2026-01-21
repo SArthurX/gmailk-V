@@ -112,16 +112,14 @@ void *VENCHandler_ThreadRoutine(void *pArgs) {
         
         // 發送畫面到 RTSP
         s32Ret = VENCHandler_SendFrameRTSP(&stFrame, pstHandler->pstMWContext);
-        if (s32Ret != CVI_SUCCESS) {
+        if (s32Ret != CVI_SUCCESS)
             std::cerr << "Send output frame failed, ret=0x" << std::hex << s32Ret << std::endl;
-        }
         
         CVI_TDL_Free(&stFaceMeta);
         CVI_VPSS_ReleaseChnFrame(0, 0, &stFrame);
         
-        if (s32Ret != CVI_SUCCESS) {
+        if (s32Ret != CVI_SUCCESS)
             g_bExit = true;
-        }
     }
     
     std::cout << "Exit encoder thread" << std::endl;

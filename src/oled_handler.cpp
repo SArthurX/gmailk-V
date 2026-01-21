@@ -84,9 +84,7 @@ void OLEDHandler_Cleanup(OLEDHandler_t *pstHandler) {
 }
 
 int OLEDHandler_ClearScreen(OLEDHandler_t *pstHandler) {
-    if (!pstHandler || !pstHandler->initialized) {
-        return -1;
-    }
+    if (!pstHandler || !pstHandler->initialized)
 
     // 清空 frame buffer
     std::memset(pstHandler->frame_buffer, 0, sizeof(pstHandler->frame_buffer));
@@ -124,19 +122,17 @@ void OLEDHandler_ConvertCoordinate(float src_x, float src_y,
 void OLEDHandler_DrawPixel(OLEDHandler_t *pstHandler,
                           uint8_t x, uint8_t y,
                           uint8_t color) {
-    if (!pstHandler || x >= OLED_WIDTH || y >= OLED_HEIGHT) {
+    if (!pstHandler || x >= OLED_WIDTH || y >= OLED_HEIGHT)
         return;
-    }
 
     // OLED 是垂直排列的，8 個像素為一個 byte
     uint16_t index = x + (y / 8) * OLED_WIDTH;
     uint8_t bit = y % 8;
 
-    if (color) {
+    if (color)
         pstHandler->frame_buffer[index] |= (1 << bit);
-    } else {
+    else
         pstHandler->frame_buffer[index] &= ~(1 << bit);
-    }
 }
 
 void OLEDHandler_DrawRect(OLEDHandler_t *pstHandler,
@@ -184,9 +180,8 @@ void OLEDHandler_DrawCrosshair(OLEDHandler_t *pstHandler) {
 }
 
 int OLEDHandler_FlushBuffer(OLEDHandler_t *pstHandler) {
-    if (!pstHandler || !pstHandler->initialized) {
+    if (!pstHandler || !pstHandler->initialized)
         return -1;
-    }
 
     // 設置為水平模式
     ssd1306_oled_set_mem_mode(SSD1306_HORI_MODE);
@@ -223,9 +218,8 @@ int OLEDHandler_FlushBuffer(OLEDHandler_t *pstHandler) {
 int OLEDHandler_DisplayInfo(OLEDHandler_t *pstHandler,
                             uint32_t face_count,
                             float fps) {
-    if (!pstHandler || !pstHandler->initialized) {
+    if (!pstHandler || !pstHandler->initialized)
         return -1;
-    }
 
     // 準備信息字串
     char info_line1[32];
@@ -248,9 +242,8 @@ int OLEDHandler_UpdateDisplay(OLEDHandler_t *pstHandler,
                               const OLEDFaceBox_t *faces, 
                               uint32_t face_count,
                               float fps) {
-    if (!pstHandler || !pstHandler->initialized) {
+    if (!pstHandler || !pstHandler->initialized)
         return -1;
-    }
 
     // 清空 frame buffer
     std::memset(pstHandler->frame_buffer, 0, sizeof(pstHandler->frame_buffer));
@@ -282,9 +275,8 @@ int OLEDHandler_UpdateDisplay(OLEDHandler_t *pstHandler,
 
     // 將 frame buffer 刷新到 OLED
     int ret = OLEDHandler_FlushBuffer(pstHandler);
-    if (ret != 0) {
+    if (ret != 0)
         return ret;
-    }
 
     // 顯示文字信息 (FPS 和人臉數量)
     ret = OLEDHandler_DisplayInfo(pstHandler, face_count, fps);

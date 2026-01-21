@@ -92,18 +92,17 @@ CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath,
             pstHandler->tdlHandle
         );
         
-        if (pstHandler->featureExtractor && pstHandler->featureExtractor->isLoaded()) {
+        if (pstHandler->featureExtractor && pstHandler->featureExtractor->isLoaded())
             std::cout << "✅ Feature extractor initialized successfully" << std::endl;
-        } else {
+        else {
             std::cerr << "⚠️  Feature extractor initialization failed, tracking will work without features" << std::endl;
             if (pstHandler->featureExtractor) {
                 delete pstHandler->featureExtractor;
                 pstHandler->featureExtractor = nullptr;
             }
         }
-    } else {
+    } else
         std::cout << "ℹ️  Feature extraction disabled (no ArcFace model specified)" << std::endl;
-    }
     
     std::cout << "TDL Handler initialized successfully" << std::endl;
     std::cout << "Model loaded: " << modelPath << std::endl;
@@ -118,12 +117,10 @@ void TDLHandler_Cleanup(TDLHandler_t *pstHandler) {
             delete pstHandler->featureExtractor;
             pstHandler->featureExtractor = nullptr;
         }
-        if (pstHandler->serviceHandle) {
+        if (pstHandler->serviceHandle)
             CVI_TDL_Service_DestroyHandle(pstHandler->serviceHandle);
-        }
-        if (pstHandler->tdlHandle) {
+        if (pstHandler->tdlHandle)
             CVI_TDL_DestroyHandle(pstHandler->tdlHandle);
-        }
         std::memset(pstHandler, 0, sizeof(TDLHandler_t));
     }
     std::cout << "TDL Handler cleaned up" << std::endl;
@@ -132,9 +129,8 @@ void TDLHandler_Cleanup(TDLHandler_t *pstHandler) {
 CVI_S32 TDLHandler_DetectFace(TDLHandler_t *pstHandler, 
                               VIDEO_FRAME_INFO_S *pstFrame, 
                               cvtdl_face_t *pstFaceMeta) {
-    if (!pstHandler || !pstFrame || !pstFaceMeta) {
+    if (!pstHandler || !pstFrame || !pstFaceMeta)
         return CVI_FAILURE;
-    }
     
     return CVI_TDL_FaceDetection(pstHandler->tdlHandle, pstFrame, 
                                  CVI_TDL_SUPPORTED_MODEL_SCRFDFACE, pstFaceMeta);
@@ -144,14 +140,12 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
                                 cvtdl_face_t *pstFaceMeta,
                                 VIDEO_FRAME_INFO_S *pstFrame,
                                 cvtdl_tracker_t *pstTracker) {
-    if (!pstHandler || !pstFaceMeta || !pstFrame) {
+    if (!pstHandler || !pstFaceMeta || !pstFrame)
         return CVI_FAILURE;
-    }
 
     // no face then return
-    if (pstFaceMeta->size == 0) {
+    if (pstFaceMeta->size == 0)
         return CVI_SUCCESS;
-    }
 
     float frame_center_x = pstFrame->stVFrame.u32Width / 2.0f;
     float frame_center_y = pstFrame->stVFrame.u32Height / 2.0f;
@@ -187,7 +181,6 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
         }
     }
     
-    
     CVI_S32 s32Ret = CVI_SUCCESS;
     for (uint32_t i = 0; i < pstFaceMeta->size; i++) {
         cvtdl_service_brush_t brush;
@@ -203,20 +196,17 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
                 is_selected = true;
             }
             // 2. 次優先級：在中心準星且未被選中（黃色，可按按鈕選中）
-            else if ((int)i == center_face_idx) {
+            else if ((int)i == center_face_idx) 
                 brush = BRUSH_YELLOW;  // 中心位置的人臉：黃色框（提示可選中）
-            }
             // 3. 最低優先級：根據追蹤狀態著色
-            else if (pstTracker->info[i].state == CVI_TRACKER_STABLE) {
+            else if (pstTracker->info[i].state == CVI_TRACKER_STABLE)
                 brush = BRUSH_GREEN;  // 穩定追蹤：綠色框
-            } else if (pstTracker->info[i].state == CVI_TRACKER_NEW) {
+            else if (pstTracker->info[i].state == CVI_TRACKER_NEW)
                 brush = BRUSH_YELLOW;  // 新追蹤：黃色框
-            } else {
+            else
                 brush = BRUSH_BLUE;  // 不穩定追蹤：藍色框
-            }
-        } else {
+        } else 
             brush = BRUSH_BLUE;  // 無追蹤資訊：藍色框
-        }
   
         cvtdl_face_t single_face = {0};
         single_face.size = 1;
@@ -300,24 +290,6 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
     }
     
     return s32Ret;
-}
-
-void TDLHandler_SetButtonHandler(TDLHandler_t *pstHandler, ButtonHandler_t *buttonHandler) {
-    if (pstHandler) {
-        pstHandler->buttonHandler = buttonHandler;
-    }
-}
-
-void TDLHandler_SetOLEDHandler(TDLHandler_t *pstHandler, OLEDHandler_t *oledHandler) {
-    if (pstHandler) {
-        pstHandler->oledHandler = oledHandler;
-    }
-}
-
-void TDLHandler_SetFaceDatabase(TDLHandler_t *pstHandler, FaceDatabase_t *faceDatabase) {
-    if (pstHandler) {
-        pstHandler->faceDatabase = faceDatabase;
-    }
 }
 
 CVI_S32 TDLHandler_CapturePhoto(VIDEO_FRAME_INFO_S *pstFrame, const char *filepath) {
@@ -464,14 +436,12 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
                 std::vector<int> to_remove;
                 for (auto& pair : g_mapTrackCenterTime) {
                     bool still_in_center = false;
-                    if (center_face_idx != -1 && center_face_idx < (int)stTracker.size) {
-                        if (stTracker.info[center_face_idx].id == pair.first) {
+                    if (center_face_idx != -1 && center_face_idx < (int)stTracker.size)
+                        if (stTracker.info[center_face_idx].id == pair.first)
                             still_in_center = true;
-                        }
-                    }
-                    if (!still_in_center) {
+
+                    if (!still_in_center)
                         to_remove.push_back(pair.first);
-                    }
                 }
                 for (int id : to_remove) {
                     g_mapTrackCenterTime.erase(id);
@@ -510,10 +480,8 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
                         std::cout << "Track ID: " << selectedID << std::endl;
                         std::cout << "🔄 Cleared previous data, re-extracting feature..." << std::endl;
                         std::cout << "=================================" << std::endl;
-                    } else {
-                        std::cout << "❌ No face is currently locked" << std::endl;
-                        std::cout << "   Wait for a face to be at center for 3 seconds" << std::endl;
-                    }
+                    } else
+                        std::cout << "❌ No face is currently locked.\n  Wait for a face to be at center for 3 seconds" << std::endl;
                     
                     ButtonHandler_ClearPressType(pstHandler->buttonHandler);
                 } 
@@ -559,25 +527,19 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
                                     std::cout << "Name: " << name << std::endl;
                                     std::cout << "Track ID: " << selectedID << std::endl;
                                     std::cout << "======================" << std::endl;
-                                } else {
+                                } else
                                     std::cerr << "❌ Failed to add person to database" << std::endl;
-                                }
-                            } else {
+                            } else
                                 std::cerr << "❌ Face database not initialized" << std::endl;
-                            }
-                        } else {
-                            std::cout << "❌ No feature extracted for Track ID " << selectedID << std::endl;
-                            std::cout << "   Please wait for feature extraction to complete" << std::endl;
-                        }
-                    } else {
-                        std::cout << "❌ No face is currently locked" << std::endl;
-                        std::cout << "   Short press to lock a face first" << std::endl;
-                    }
+                        } else
+                            std::cout << "❌ No feature extracted for Track ID： " << selectedID 
+                                        << "\nPlease wait for feature extraction to complete" << std::endl;
+                    } else
+                        std::cout << "❌ No face is currently locked\n Short press to lock a face first" << std::endl;
                     
                     ButtonHandler_ClearPressType(pstHandler->buttonHandler);
                 }
             }
-            
             // Extract features for tracked faces (if feature extractor is available)
             // 對選中的人臉立即提取特徵（已在自動鎖定時等待3秒）
             if (pstHandler->featureExtractor && stTracker.size > 0) {
@@ -665,9 +627,8 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
                                             UNLOCK_MATCH_RESULT_MUTEX();
                                         }
                                     }
-                                } else {
+                                } else
                                     std::cerr << "❌ Feature extraction failed for Track ID " << selectedID << std::endl;
-                                }
                             }
                             break;
                         }
@@ -678,7 +639,6 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
         
         execution_time = ((t1.tv_sec - t0.tv_sec) * 1000000 + t1.tv_usec - t0.tv_usec);
         
-
         frame_count++;
         gettimeofday(&fps_t1, NULL);
         unsigned long fps_elapsed = ((fps_t1.tv_sec - fps_t0.tv_sec) * 1000000 + fps_t1.tv_usec - fps_t0.tv_usec);
@@ -761,9 +721,8 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
             }
             
             // 標記中心人臉
-            if (center_face_idx >= 0) {
+            if (center_face_idx >= 0)
                 oled_faces[center_face_idx].is_center = 1;
-            }
             
             // 更新 OLED 顯示
             OLEDHandler_UpdateDisplay(pstHandler->oledHandler, oled_faces, 
@@ -775,12 +734,10 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
             LOCK_RESULT_MUTEX();
             std::memset(&g_stFaceMeta, 0, sizeof(cvtdl_face_t));
             std::memset(&g_stTracker, 0, sizeof(cvtdl_tracker_t));
-            if (stFaceMeta.info != nullptr) {
+            if (stFaceMeta.info != nullptr)
                 CVI_TDL_CopyFaceMeta(&stFaceMeta, &g_stFaceMeta);
-            }
-            if (stTracker.info != nullptr) {
+            if (stTracker.info != nullptr)
                 CVI_TDL_CopyTrackerMeta(&stTracker, &g_stTracker);
-            }
             UNLOCK_RESULT_MUTEX();
         }
         

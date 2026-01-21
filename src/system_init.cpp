@@ -8,8 +8,6 @@ extern "C" {
 #include "vi_vo_utils.h"
 }
 
-
-
 CVI_S32 SystemInit_GetSensorConfig(SystemConfig_t *pstConfig) {
     std::memset(&pstConfig->stMWConfig, 0, sizeof(pstConfig->stMWConfig));
     

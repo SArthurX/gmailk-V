@@ -21,12 +21,11 @@ int FaceDatabase_Init(FaceDatabase_t* database, const char* db_path, float thres
   database->initialized = false;
 
   // 嘗試載入現有資料庫
-  if (FaceDatabase_Load(database) == 0) {
+  if (FaceDatabase_Load(database) == 0)
     std::cout << "FaceDatabase: Loaded " << database->persons.size() 
               << " persons from " << db_path << std::endl;
-  } else {
+  else
     std::cout << "FaceDatabase: Starting with empty database at " << db_path << std::endl;
-  }
 
   database->initialized = true;
   return 0;
@@ -78,9 +77,8 @@ int FaceDatabase_Load(FaceDatabase_t* database) {
 
 // 儲存資料庫
 int FaceDatabase_Save(FaceDatabase_t* database) {
-  if (!database || !database->initialized) {
+  if (!database || !database->initialized)
     return -1;
-  }
 
   try {
     json j;
@@ -261,17 +259,15 @@ int FaceDatabase_Match(FaceDatabase_t* database, const float* feature,
 // 取得所有人員
 const std::vector<PersonInfo_t>& FaceDatabase_GetAllPersons(FaceDatabase_t* database) {
   static std::vector<PersonInfo_t> empty_list;
-  if (!database) {
+  if (!database)
     return empty_list;
-  }
   return database->persons;
 }
 
 // 清理資料庫
 void FaceDatabase_Cleanup(FaceDatabase_t* database) {
-  if (!database) {
+  if (!database)
     return;
-  }
 
   database->persons.clear();
   database->initialized = false;

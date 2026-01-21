@@ -58,7 +58,8 @@ include_directories(
     ${PROJECT_ROOT}/include/system
     ${PROJECT_ROOT}/include/system/linux
     ${PROJECT_ROOT}/include/tdl
-    ${PROJECT_ROOT}/include/utility
+    
+    ${PROJECT_ROOT}/include/utils
 
     ${PROJECT_ROOT}/common
 

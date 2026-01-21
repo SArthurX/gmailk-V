@@ -38,16 +38,26 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
                                 cvtdl_face_t *pstFaceMeta,
                                 VIDEO_FRAME_INFO_S *pstFrame,
                                 cvtdl_tracker_t *pstTracker = nullptr);
+                                
+CVI_S32 TDLHandler_CapturePhoto(VIDEO_FRAME_INFO_S *pstFrame, const char *filepath);
 
 void *TDLHandler_ThreadRoutine(void *pHandle);
 
-void TDLHandler_SetButtonHandler(TDLHandler_t *pstHandler, ButtonHandler_t *buttonHandler);
 
-void TDLHandler_SetOLEDHandler(TDLHandler_t *pstHandler, OLEDHandler_t *oledHandler);
+static inline void TDLHandler_SetButtonHandler(TDLHandler_t *pstHandler, ButtonHandler_t *buttonHandler) {
+    if (pstHandler)
+        pstHandler->buttonHandler = buttonHandler;
+}
 
-void TDLHandler_SetFaceDatabase(TDLHandler_t *pstHandler, FaceDatabase_t *faceDatabase);
+static inline void TDLHandler_SetOLEDHandler(TDLHandler_t *pstHandler, OLEDHandler_t *oledHandler) {
+    if (pstHandler)
+        pstHandler->oledHandler = oledHandler;
+}
 
-CVI_S32 TDLHandler_CapturePhoto(VIDEO_FRAME_INFO_S *pstFrame, const char *filepath);
+static inline void TDLHandler_SetFaceDatabase(TDLHandler_t *pstHandler, FaceDatabase_t *faceDatabase) {
+    if (pstHandler)
+        pstHandler->faceDatabase = faceDatabase;
+}
 
 static inline void CVI_Mmap(VIDEO_FRAME_INFO_S *pstFrame, bool unmap = false){
     size_t image_size = pstFrame->stVFrame.u32Length[0] + pstFrame->stVFrame.u32Length[1] +
