@@ -1,15 +1,15 @@
 #include <iostream>
 #include <cstring>
-#include <sys/time.h>
-#include <time.h>
-#include <cmath>
-#include <cfloat>
 #include "tdl_handler.h"
 #include "shared_data.h"
 #include "draw_utils.h"
 #include "button_handler.h"
 #include "face_feature_extractor.h"
 #include "helpers/btn_helpers.hpp"
+#include "helpers/geometry_helper.hpp"
+#include "helpers/auto_lock_helper.hpp"
+#include "helpers/fps_helper.hpp"
+#include "helpers/oled_helper.hpp"
 
 extern "C" {
 #include <cvi_sys.h>
@@ -150,37 +150,20 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
 
     float frame_center_x = pstFrame->stVFrame.u32Width / 2.0f;
     float frame_center_y = pstFrame->stVFrame.u32Height / 2.0f;
-    
     float center_threshold = 80.0f; 
     
     // find the face closest to the center crosshair (within threshold)
-    int center_face_idx = -1;
-    float min_distance = FLT_MAX;
+    int center_face_idx = FindCenterFaceIndex(
+        pstFaceMeta,
+        frame_center_x,
+        frame_center_y,
+        center_threshold
+    );
     
     // Get selected track ID
     LOCK_SELECTED_TRACK_MUTEX();
     int selectedTrackID = g_iSelectedTrackID;
     UNLOCK_SELECTED_TRACK_MUTEX();
-    
-    for (uint32_t i = 0; i < pstFaceMeta->size; i++) {
-        float bbox_x1 = pstFaceMeta->info[i].bbox.x1;
-        float bbox_y1 = pstFaceMeta->info[i].bbox.y1;
-        float bbox_x2 = pstFaceMeta->info[i].bbox.x2;
-        float bbox_y2 = pstFaceMeta->info[i].bbox.y2;
-        
-        float face_center_x = (bbox_x1 + bbox_x2) / 2.0f;
-        float face_center_y = (bbox_y1 + bbox_y2) / 2.0f;
-        
-        float dx = face_center_x - frame_center_x;
-        float dy = face_center_y - frame_center_y;
-        float distance = sqrt(dx * dx + dy * dy);
-        
-        // if in the threshold 
-        if (distance < center_threshold && distance < min_distance) {
-            min_distance = distance;
-            center_face_idx = i;
-        }
-    }
     
     CVI_S32 s32Ret = CVI_SUCCESS;
     for (uint32_t i = 0; i < pstFaceMeta->size; i++) {
@@ -315,16 +298,20 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
     cvtdl_face_t stFaceMeta = {0};
     cvtdl_tracker_t stTracker = {0};
     CVI_S32 s32Ret;
-    static uint32_t s_u32LastFaceSize = 0;
     
-    struct timeval t0, t1 ,fps_t0, fps_t1;;
+    struct timeval t0, t1;
     unsigned long execution_time;
-    gettimeofday(&fps_t0, NULL);
-    int frame_count = 0;
-    float current_fps = 0.0f;
+    FPSCalculator_t fps_calculator;
+    FPSCalculator_Init(&fps_calculator);
+    static uint32_t s_u32LastFaceSize = 0;
     
     while (!g_bExit) {
         s32Ret = CVI_VPSS_GetChnFrame(0, VPSS_CHN1, &stFrame, 2000);
+        
+        // Get selected track ID
+        LOCK_SELECTED_TRACK_MUTEX();
+        int selectedTrackID = g_iSelectedTrackID;
+        UNLOCK_SELECTED_TRACK_MUTEX();
         
         if (s32Ret == CVI_SUCCESS) {
             static bool bFirstFrame = true;
@@ -371,83 +358,7 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
             
             // === 自動鎖定機制：檢測在中心超過3秒的人臉 ===
             if (stTracker.size > 0) {
-                float frame_center_x = stFrame.stVFrame.u32Width / 2.0f;
-                float frame_center_y = stFrame.stVFrame.u32Height / 2.0f;
-                float center_threshold = 80.0f;
-                
-                // 找到當前在中心的人臉
-                int center_face_idx = -1;
-                float min_distance = FLT_MAX;
-                
-                for (uint32_t i = 0; i < stFaceMeta.size; i++) {
-                    float face_center_x = (stFaceMeta.info[i].bbox.x1 + stFaceMeta.info[i].bbox.x2) / 2.0f;
-                    float face_center_y = (stFaceMeta.info[i].bbox.y1 + stFaceMeta.info[i].bbox.y2) / 2.0f;
-                    
-                    float dx = face_center_x - frame_center_x;
-                    float dy = face_center_y - frame_center_y;
-                    float distance = sqrt(dx * dx + dy * dy);
-                    
-                    if (distance < center_threshold && distance < min_distance) {
-                        min_distance = distance;
-                        center_face_idx = i;
-                    }
-                }
-                
-                if (center_face_idx != -1 && center_face_idx < (int)stTracker.size) {
-                    int center_track_id = stTracker.info[center_face_idx].id;
-                    
-                    // 記錄或更新該人臉在中心的時間
-                    LOCK_CENTERTIME_MUTEX();
-                    time_t now = time(NULL);
-                    if (g_mapTrackCenterTime.find(center_track_id) == g_mapTrackCenterTime.end()) {
-                        // 第一次出現在中心
-                        g_mapTrackCenterTime[center_track_id] = now;
-                    }
-                    
-                    time_t center_time = g_mapTrackCenterTime[center_track_id];
-                    int duration = (int)(now - center_time);
-                    UNLOCK_CENTERTIME_MUTEX();
-                    
-                    // 檢查是否已經被鎖定
-                    LOCK_SELECTED_TRACK_MUTEX();
-                    bool is_already_locked = (g_iSelectedTrackID == center_track_id);
-                    UNLOCK_SELECTED_TRACK_MUTEX();
-                    
-                    // 如果在中心超過3秒且未被鎖定，自動鎖定
-                    if (duration >= 3 && !is_already_locked) {
-                        LOCK_SELECTED_TRACK_MUTEX();
-                        g_iSelectedTrackID = center_track_id;
-                        UNLOCK_SELECTED_TRACK_MUTEX();
-                        
-                        // 記錄鎖定時間
-                        LOCK_LOCKTIME_MUTEX();
-                        g_mapTrackLockTime[center_track_id] = now;
-                        UNLOCK_LOCKTIME_MUTEX();
-                        
-                        std::cout << "=== Auto-Lock Triggered ===" << std::endl;
-                        std::cout << "Track ID: " << center_track_id << std::endl;
-                        std::cout << "🎯 Face at center for " << duration << "s - Auto-locked!" << std::endl;
-                        std::cout << "Feature extraction starting..." << std::endl;
-                        std::cout << "===========================" << std::endl;
-                    }
-                }
-                
-                // 清除不在中心的人臉的中心時間記錄
-                LOCK_CENTERTIME_MUTEX();
-                std::vector<int> to_remove;
-                for (auto& pair : g_mapTrackCenterTime) {
-                    bool still_in_center = false;
-                    if (center_face_idx != -1 && center_face_idx < (int)stTracker.size)
-                        if (stTracker.info[center_face_idx].id == pair.first)
-                            still_in_center = true;
-
-                    if (!still_in_center)
-                        to_remove.push_back(pair.first);
-                }
-                for (int id : to_remove) {
-                    g_mapTrackCenterTime.erase(id);
-                }
-                UNLOCK_CENTERTIME_MUTEX();
+                ProcessAutoLock(&stFaceMeta, &stTracker, &stFrame);
             }
             
             // === 按鈕處理（在追蹤完成後） ===
@@ -554,20 +465,9 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
         }
         
         execution_time = ((t1.tv_sec - t0.tv_sec) * 1000000 + t1.tv_usec - t0.tv_usec);
-        
-        frame_count++;
-        gettimeofday(&fps_t1, NULL);
-        unsigned long fps_elapsed = ((fps_t1.tv_sec - fps_t0.tv_sec) * 1000000 + fps_t1.tv_usec - fps_t0.tv_usec);
-        if (fps_elapsed >= 1000000) { // 1 second
-            current_fps = (float)frame_count * 1000000.0f / (float)fps_elapsed;
-            {
-                LOCK_FPS_MUTEX();
-                g_fCurrentFPS = current_fps;
-                UNLOCK_FPS_MUTEX();
-            }
-            frame_count = 0;
-            fps_t0 = fps_t1;
-        }
+        FPSCalculator_Update(&fps_calculator);
+        float current_fps = FPSCalculator_GetFPS(&fps_calculator);
+
         
         // if (stFaceMeta.size > 0) {
         //     std::cout << "=== Face Detection & Tracking Results ===" << std::endl;
@@ -601,49 +501,8 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
         s_u32LastFaceSize = stFaceMeta.size;
         
         // 更新 OLED 顯示
-        if (pstHandler->oledHandler && pstHandler->oledHandler->initialized) {
-            // 準備 OLED 人臉框數據
-            OLEDFaceBox_t oled_faces[32]; // 最多支持 32 個人臉
-            uint32_t oled_face_count = std::min((uint32_t)stFaceMeta.size, (uint32_t)32);
-            
-            // 計算畫面中心點
-            float frame_center_x = stFrame.stVFrame.u32Width / 2.0f;
-            float frame_center_y = stFrame.stVFrame.u32Height / 2.0f;
-            float center_threshold = 150.0f; // 中心對準閾值
-            
-            // 找出最接近中心的人臉
-            int center_face_idx = -1;
-            float min_distance = FLT_MAX;
-            
-            for (uint32_t i = 0; i < oled_face_count; i++) {
-                oled_faces[i].x1 = stFaceMeta.info[i].bbox.x1;
-                oled_faces[i].y1 = stFaceMeta.info[i].bbox.y1;
-                oled_faces[i].x2 = stFaceMeta.info[i].bbox.x2;
-                oled_faces[i].y2 = stFaceMeta.info[i].bbox.y2;
-                oled_faces[i].score = stFaceMeta.info[i].bbox.score;
-                oled_faces[i].is_center = 0;
-                
-                // 計算人臉中心到畫面中心的距離
-                float face_center_x = (oled_faces[i].x1 + oled_faces[i].x2) / 2.0f;
-                float face_center_y = (oled_faces[i].y1 + oled_faces[i].y2) / 2.0f;
-                float dx = face_center_x - frame_center_x;
-                float dy = face_center_y - frame_center_y;
-                float distance = sqrt(dx * dx + dy * dy);
-                
-                if (distance < center_threshold && distance < min_distance) {
-                    min_distance = distance;
-                    center_face_idx = i;
-                }
-            }
-            
-            // 標記中心人臉
-            if (center_face_idx >= 0)
-                oled_faces[center_face_idx].is_center = 1;
-            
-            // 更新 OLED 顯示
-            OLEDHandler_UpdateDisplay(pstHandler->oledHandler, oled_faces, 
-                                     oled_face_count, current_fps);
-        }
+        UpdateOLEDDisplay(pstHandler->oledHandler, &stFaceMeta, &stFrame, current_fps);
+
         
         // 更新全局人臉和追蹤數據
         {

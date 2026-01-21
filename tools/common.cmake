@@ -60,6 +60,7 @@ include_directories(
     ${PROJECT_ROOT}/include/tdl
     
     ${PROJECT_ROOT}/include/utils
+    ${PROJECT_ROOT}/src/helpers
 
     ${PROJECT_ROOT}/common
 
