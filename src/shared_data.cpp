@@ -1,7 +1,6 @@
 #include <cstring>
 #include "shared_data.h"
 
-
 std::atomic<bool> g_bExit(false);
 cvtdl_face_t g_stFaceMeta = {0};
 cvtdl_tracker_t g_stTracker = {0};

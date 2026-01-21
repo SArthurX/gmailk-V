@@ -9,7 +9,6 @@
 #include "net.h"
 #include "mat.h"
 
-
 ncnn::Mat FaceFeatureExtractor::nv21FrameToNcnnMat(VIDEO_FRAME_INFO_S* frame) {
     int width = frame->stVFrame.u32Width;
     int height = frame->stVFrame.u32Height;
@@ -27,9 +26,8 @@ ncnn::Mat FaceFeatureExtractor::nv21FrameToNcnnMat(VIDEO_FRAME_INFO_S* frame) {
         frame->stVFrame.pu8VirAddr[1] = frame->stVFrame.pu8VirAddr[0] + frame->stVFrame.u32Length[0];
         need_unmap = true;
         std::cout << "  [DEBUG] Mapped new frame memory" << std::endl;
-    } else {
+    } else
         std::cout << "  [DEBUG] Using already mapped memory (VirAddr: " << (void*)frame->stVFrame.pu8VirAddr[0] << ")" << std::endl;
-    }
     
     // 調試：輸出前8個Y值
     std::cout << "  [DEBUG] Y data (first 8): ";

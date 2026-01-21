@@ -9,6 +9,7 @@
 #include "draw_utils.h"
 #include "button_handler.h"
 #include "face_feature_extractor.h"
+#include "helpers/btn_helpers.hpp"
 
 extern "C" {
 #include <cvi_sys.h>
@@ -451,95 +452,10 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
             
             // === 按鈕處理（在追蹤完成後） ===
             if (pstHandler->buttonHandler) {
-                ButtonPressType_t pressType = ButtonHandler_GetPressType(pstHandler->buttonHandler);
-                
-                if (pressType == BUTTON_PRESS_SHORT) {
-                    std::cout << "🔘 Button pressed (SHORT)" << std::endl;
-                    
-                    // 短按：重新識別當前鎖定的人臉
-                    LOCK_SELECTED_TRACK_MUTEX();
-                    int selectedID = g_iSelectedTrackID;
-                    UNLOCK_SELECTED_TRACK_MUTEX();
-                    
-                    if (selectedID != -1) {
-                        // 清除舊的特徵和匹配結果
-                        LOCK_FEATURE_MUTEX();
-                        g_mapTrackFeatures.erase(selectedID);
-                        UNLOCK_FEATURE_MUTEX();
-                        
-                        LOCK_MATCH_RESULT_MUTEX();
-                        g_mapTrackMatchResults.erase(selectedID);
-                        UNLOCK_MATCH_RESULT_MUTEX();
-                        
-                        // 重置鎖定時間，觸發重新提取特徵
-                        LOCK_LOCKTIME_MUTEX();
-                        g_mapTrackLockTime[selectedID] = time(NULL);
-                        UNLOCK_LOCKTIME_MUTEX();
-                        
-                        std::cout << "=== Re-identification Started ===" << std::endl;
-                        std::cout << "Track ID: " << selectedID << std::endl;
-                        std::cout << "🔄 Cleared previous data, re-extracting feature..." << std::endl;
-                        std::cout << "=================================" << std::endl;
-                    } else
-                        std::cout << "❌ No face is currently locked.\n  Wait for a face to be at center for 3 seconds" << std::endl;
-                    
-                    ButtonHandler_ClearPressType(pstHandler->buttonHandler);
-                } 
-                else if (pressType == BUTTON_PRESS_LONG) {
-                    std::cout << "🔘 Button pressed (LONG)" << std::endl;
-                    
-                    // 長按：註冊當前選中的人臉到資料庫
-                    LOCK_SELECTED_TRACK_MUTEX();
-                    int selectedID = g_iSelectedTrackID;
-                    UNLOCK_SELECTED_TRACK_MUTEX();
-                    
-                    if (selectedID != -1) {
-                        // 檢查是否已經提取特徵
-                        LOCK_FEATURE_MUTEX();
-                        bool hasFeature = (g_mapTrackFeatures.find(selectedID) != g_mapTrackFeatures.end());
-                        std::vector<float> feature;
-                        if (hasFeature) {
-                            feature = g_mapTrackFeatures[selectedID];
-                        }
-                        UNLOCK_FEATURE_MUTEX();
-                        
-                        if (hasFeature && feature.size() == 128) {
-                            // 有特徵，註冊到資料庫
-                            if (pstHandler->faceDatabase && pstHandler->faceDatabase->initialized) {
-                                // 生成測試姓名（後續可改為用戶輸入）
-                                static int person_count = 0;
-                                char name[64];
-                                const char* test_names[] = {"eddie", "nany", "lol", "ccc", "cocoya", "sunba"};
-                                snprintf(name, sizeof(name), "%s", test_names[person_count % 6]);
-                                person_count++;
-                                
-                                int person_id = FaceDatabase_AddPerson(
-                                    pstHandler->faceDatabase,
-                                    name,
-                                    feature.data(),
-                                    feature.size()
-                                );
-                                
-                                if (person_id > 0) {
-                                    std::cout << "=== Face Registered ===" << std::endl;
-                                    std::cout << "✅ Person added to database!" << std::endl;
-                                    std::cout << "ID: " << person_id << std::endl;
-                                    std::cout << "Name: " << name << std::endl;
-                                    std::cout << "Track ID: " << selectedID << std::endl;
-                                    std::cout << "======================" << std::endl;
-                                } else
-                                    std::cerr << "❌ Failed to add person to database" << std::endl;
-                            } else
-                                std::cerr << "❌ Face database not initialized" << std::endl;
-                        } else
-                            std::cout << "❌ No feature extracted for Track ID： " << selectedID 
-                                        << "\nPlease wait for feature extraction to complete" << std::endl;
-                    } else
-                        std::cout << "❌ No face is currently locked\n Short press to lock a face first" << std::endl;
-                    
-                    ButtonHandler_ClearPressType(pstHandler->buttonHandler);
-                }
+                ButtonHandler_Inputs(pstHandler);
+                ButtonHandler_ClearPressType(pstHandler->buttonHandler);
             }
+
             // Extract features for tracked faces (if feature extractor is available)
             // 對選中的人臉立即提取特徵（已在自動鎖定時等待3秒）
             if (pstHandler->featureExtractor && stTracker.size > 0) {
@@ -749,3 +665,5 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
     std::cout << "Exit TDL thread" << std::endl;
     pthread_exit(nullptr);
 }
+
+

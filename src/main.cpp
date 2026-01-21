@@ -6,15 +6,13 @@
 #include <pthread.h>
 #include <cstring>
 
-
 #include "shared_data.h"
 #include "system_init.h"
 #include "tdl_handler.h"
 #include "venc_handler.h"
 #include "button_handler.h"
-#include "oled_handler.h"
+#include "oled_ctrl.h"
 #include "face_database.h"
-
 
 static void SampleHandleSig(CVI_S32 signo) {
   signal(SIGINT, SIG_IGN);

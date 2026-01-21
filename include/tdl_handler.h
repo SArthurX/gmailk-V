@@ -3,7 +3,7 @@
 
 #include "button_handler.h"
 #include "cvi_tdl.h"
-#include "oled_handler.h"
+#include "oled_ctrl.h"
 #include "face_database.h"
 extern "C" {
 #include <cvi_comm.h>
@@ -58,6 +58,14 @@ static inline void TDLHandler_SetFaceDatabase(TDLHandler_t *pstHandler, FaceData
     if (pstHandler)
         pstHandler->faceDatabase = faceDatabase;
 }
+
+// static inline float CalculateDistanceToCenter(const cvtdl_bbox_t& bbox, uint32_t frameW, uint32_t frameH) {
+//     float frame_center_x = frameW / 2.0f;
+//     float frame_center_y = frameH / 2.0f;
+//     float face_center_x = (bbox.x1 + bbox.x2) / 2.0f;
+//     float face_center_y = (bbox.y1 + bbox.y2) / 2.0f;
+//     return sqrt(pow(face_center_x - frame_center_x, 2) + pow(face_center_y - frame_center_y, 2));
+// }
 
 static inline void CVI_Mmap(VIDEO_FRAME_INFO_S *pstFrame, bool unmap = false){
     size_t image_size = pstFrame->stVFrame.u32Length[0] + pstFrame->stVFrame.u32Length[1] +

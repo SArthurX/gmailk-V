@@ -1,5 +1,5 @@
-#ifndef OLED_HANDLER_H
-#define OLED_HANDLER_H
+#ifndef OLED_CTRL_H
+#define OLED_CTRL_H
 
 #include <stdint.h>
 
@@ -126,4 +126,4 @@ int OLEDHandler_DisplayInfo(OLEDHandler_t *pstHandler,
 }
 #endif
 
-#endif // OLED_HANDLER_H
+#endif // OLED_CTRL_H
