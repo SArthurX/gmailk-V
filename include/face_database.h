@@ -12,7 +12,7 @@ extern "C" {
 typedef struct {
   int id;
   std::string name;
-  std::vector<float> feature;  // 128維特徵向量
+  std::vector<float> feature;  // 特徵向量（維度由模型決定）
   float similarity;             // 比對時的相似度
 } PersonInfo_t;
 
@@ -55,8 +55,8 @@ int FaceDatabase_Save(FaceDatabase_t* database);
  * @brief 新增人員到資料庫
  * @param database 資料庫處理器
  * @param name 人員姓名
- * @param feature 128維特徵向量
- * @param feature_size 特徵向量大小（應為 128）
+ * @param feature 特徵向量
+ * @param feature_size 特徵向量大小
  * @return 新增的人員 ID，失敗返回 -1
  * @note 會立即更新記憶體資料庫並寫入檔案
  */
@@ -66,8 +66,8 @@ int FaceDatabase_AddPerson(FaceDatabase_t* database, const char* name,
 /**
  * @brief 比對人臉特徵，找出最相似的人員
  * @param database 資料庫處理器
- * @param feature 要比對的128維特徵向量
- * @param feature_size 特徵向量大小（應為 128）
+ * @param feature 要比對的特徵向量
+ * @param feature_size 特徵向量大小
  * @param match_person 輸出：匹配的人員資訊（如果有）
  * @return 0 找到匹配，-1 沒有匹配
  * @note 在記憶體資料庫中進行比對，不讀取檔案

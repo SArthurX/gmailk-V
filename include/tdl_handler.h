@@ -16,8 +16,7 @@ typedef struct {
     cvitdl_handle_t tdlHandle;
     cvitdl_service_handle_t serviceHandle;
     const char *modelPath;
-    const char *arcfaceParamPath;  // ArcFace 模型參數文件路徑
-    const char *arcfaceBinPath;    // ArcFace 模型權重文件路徑
+    const char *arcfaceCvimodelPath;  // ArcFace .cvimodel 路徑（TPU）
     ButtonHandler_t *buttonHandler;
     FaceFeatureExtractor *featureExtractor;  // 特徵提取器
     OLEDHandler_t *oledHandler;
@@ -25,7 +24,7 @@ typedef struct {
 } TDLHandler_t;
 
 CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath,
-                        const char *arcfaceParam = nullptr, const char *arcfaceBin = nullptr);
+                        const char *arcfaceCvimodel = nullptr);
 
 
 void TDLHandler_Cleanup(TDLHandler_t *pstHandler);

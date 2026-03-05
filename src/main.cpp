@@ -25,26 +25,26 @@ static void SampleHandleSig(CVI_S32 signo) {
 
 int main(int argc, char *argv[]) {
   if (argc < 2) {
-    std::cout << "\nUsage: " << argv[0] << " SCRFDFACE_MODEL_PATH [ARCFACE_PARAM] [ARCFACE_BIN]\n\n"
+    std::cout << "\nUsage: " << argv[0] << " SCRFDFACE_MODEL_PATH [ARCFACE_CVIMODEL]\n\n"
               << "\tSCRFDFACE_MODEL_PATH, path to scrfdface model.\n"
-              << "\tARCFACE_PARAM (optional), path to ArcFace .param file.\n"
-              << "\tARCFACE_BIN (optional), path to ArcFace .bin file.\n"
-              << "\t-oled, optional flag to enable OLED display (I2C-2).\n" 
+              << "\tARCFACE_CVIMODEL (optional), path to ArcFace .cvimodel file (TPU).\n"
+              << "\t--oled, optional flag to enable OLED display (I2C-2).\n" 
               << "\nExample:\n"
               << "\t" << argv[0] << " models/scrfd.cvimodel\n"
-              << "\t" << argv[0] << " models/scrfd.cvimodel models/mobilefacenet.param models/mobilefacenet.bin\n" 
+              << "\t" << argv[0] << " models/scrfd.cvimodel models/arcface.cvimodel\n" 
               << std::endl;
     return -1;
   }
 
-  const char* arcfaceParam = (argc >= 3) ? argv[2] : nullptr;
-  const char* arcfaceBin = (argc >= 4) ? argv[3] : nullptr;
+  const char* arcfaceCvimodel = (argc >= 3) ? argv[2] : nullptr;
 
-  // Check for -oled flag
+  // Check for --oled flag
   bool enable_oled = false;
   for (int i = 2; i < argc; i++) {
     if (std::string(argv[i]) == "--oled") {
       enable_oled = true;
+      // If --oled is in position 2, arcface path might be wrong
+      if (i == 2) arcfaceCvimodel = nullptr;
       break;
     }
   }
@@ -65,7 +65,7 @@ int main(int argc, char *argv[]) {
   }
 
   TDLHandler_t stTDLHandler;
-  s32Ret = TDLHandler_Init(&stTDLHandler, argv[1], arcfaceParam, arcfaceBin);
+  s32Ret = TDLHandler_Init(&stTDLHandler, argv[1], arcfaceCvimodel);
   if (s32Ret != CVI_SUCCESS) {
     std::cerr << "TDL initialization failed!" << std::endl;
     SystemInit_Cleanup(&stMWContext);

@@ -130,9 +130,8 @@ int FaceDatabase_AddPerson(FaceDatabase_t* database, const char* name,
     return -1;
   }
 
-  if (feature_size != 128) {
-    std::cerr << "FaceDatabase_AddPerson: Invalid feature size: " << feature_size 
-              << " (expected 128)" << std::endl;
+  if (feature_size <= 0) {
+    std::cerr << "FaceDatabase_AddPerson: Invalid feature size: " << feature_size << std::endl;
     return -1;
   }
 
@@ -202,7 +201,7 @@ int FaceDatabase_Match(FaceDatabase_t* database, const float* feature,
   if (!database || !database->initialized || !feature || !match_person)
     return -1;
 
-  if (feature_size != 128) {
+  if (feature_size <= 0) {
     std::cerr << "FaceDatabase_Match: Invalid feature size: " << feature_size << std::endl;
     return -1;
   }
@@ -216,19 +215,23 @@ int FaceDatabase_Match(FaceDatabase_t* database, const float* feature,
 
   // 調試：輸出與所有人的相似度
   std::cout << "[DEBUG] Similarity with all persons:" << std::endl;
-  std::cout << "  Query feature (first 20): [";
-  for (int i = 0; i < std::min(20, feature_size); i++) {
+  std::cout << "  Query feature (first 10): [";
+  for (int i = 0; i < std::min(10, feature_size); i++) {
     std::cout << feature[i];
-    if (i < 19) std::cout << ", ";
+    if (i < 9) std::cout << ", ";
   }
   std::cout << "]" << std::endl;
 
   // 找出最相似的人員
   for (size_t i = 0; i < database->persons.size(); i++) {
+    // 使用兩者的最小維度進行比對
+    int compare_size = std::min(feature_size, (int)database->persons[i].feature.size());
+    if (compare_size <= 0) continue;
+    
     float similarity = FaceDatabase_CosineSimilarity(
       feature, 
       database->persons[i].feature.data(), 
-      feature_size
+      compare_size
     );
 
     std::cout << "  Person [" << database->persons[i].id << "] " 

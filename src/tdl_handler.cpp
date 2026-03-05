@@ -17,7 +17,7 @@ extern "C" {
 }
 
 CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath,
-                        const char *arcfaceParam, const char *arcfaceBin) {
+                        const char *arcfaceCvimodel) {
     if (!pstHandler || !modelPath) {
         std::cerr << "Invalid parameters for TDLHandler_Init" << std::endl;
         return CVI_FAILURE;
@@ -25,8 +25,7 @@ CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath,
     
     std::memset(pstHandler, 0, sizeof(TDLHandler_t));
     pstHandler->modelPath = modelPath;
-    pstHandler->arcfaceParamPath = arcfaceParam;
-    pstHandler->arcfaceBinPath = arcfaceBin;
+    pstHandler->arcfaceCvimodelPath = arcfaceCvimodel;
     pstHandler->buttonHandler = nullptr;
     pstHandler->featureExtractor = nullptr;
     pstHandler->oledHandler = nullptr;
@@ -85,11 +84,10 @@ CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath,
     
     CVI_TDL_DeepSORT_SetConfig(pstHandler->tdlHandle, &ds_conf, -1, false);
     
-    // Initialize ArcFace feature extractor (optional)
-    if (arcfaceParam && arcfaceBin) {
+    // Initialize ArcFace feature extractor (optional, TPU)
+    if (arcfaceCvimodel) {
         pstHandler->featureExtractor = new FaceFeatureExtractor(
-            arcfaceParam,
-            arcfaceBin,
+            arcfaceCvimodel,
             pstHandler->tdlHandle
         );
         
@@ -393,7 +391,8 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
                                     feature
                                 );
                                 
-                                if (feat_ret == CVI_SUCCESS && feature.size() == 128) {
+                                int expected_dim = pstHandler->featureExtractor->getFeatureDim();
+                                if (feat_ret == CVI_SUCCESS && (int)feature.size() == expected_dim) {
                                     // 調試：輸出前5個特徵值
                                     std::cout << "✅ Feature extracted for Track ID " << selectedID << std::endl;
                                     std::cout << "  Feature (first 5): ";
@@ -409,15 +408,15 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
                                     
                                     // 填充到 face meta（供 DeepSORT 使用）
                                     if (!stFaceMeta.info[i].feature.ptr) {
-                                        stFaceMeta.info[i].feature.ptr = (int8_t*)malloc(128);
+                                        stFaceMeta.info[i].feature.ptr = (int8_t*)malloc(expected_dim);
                                     }
                                     
-                                    for (int j = 0; j < 128; j++) {
+                                    for (int j = 0; j < expected_dim; j++) {
                                         float val = feature[j] * 127.0f;
                                         val = val < -128.0f ? -128.0f : (val > 127.0f ? 127.0f : val);
                                         stFaceMeta.info[i].feature.ptr[j] = (int8_t)val;
                                     }
-                                    stFaceMeta.info[i].feature.size = 128;
+                                    stFaceMeta.info[i].feature.size = expected_dim;
                                     stFaceMeta.info[i].feature.type = TYPE_INT8;
                                     
                                     // 立即與資料庫比對

@@ -45,12 +45,9 @@ endif()
 
 set(OPENCV_LIB_DIR "${PROJECT_ROOT}/lib/opencv/build/install/lib")
 set(OPENCV_INCLUDE_DIR "${PROJECT_ROOT}/lib/opencv/build/install/include")
-set(NCNN_LIB_DIR "${PROJECT_ROOT}/lib/ncnn/build/install/lib")
-set(NCNN_INCLUDE_DIR "${PROJECT_ROOT}/lib/ncnn/build/install/include")
 
 link_directories(
     ${OPENCV_LIB_DIR}
-    ${NCNN_LIB_DIR}
 )
 
 include_directories(
@@ -69,8 +66,6 @@ include_directories(
     
     ${OPENCV_INCLUDE_DIR}
     ${OPENCV_INCLUDE_DIR}/opencv4
-    ${NCNN_INCLUDE_DIR}
-    ${NCNN_INCLUDE_DIR}/ncnn
 )
 
 set(SSD1306_SOURCES
@@ -117,7 +112,6 @@ function(target_link_common_libraries target_name)
         opencv_core
         opencv_imgproc
         opencv_imgcodecs
-        ncnn
  
         cvikernel
         cvimath
