@@ -55,7 +55,7 @@ static inline void HandleLongPress(TDLHandler_t *pstHandler) {
         }
         UNLOCK_FEATURE_MUTEX();
         
-        if (hasFeature && feature.size() == 128) {
+        if (hasFeature && !feature.empty()) {
             // 有特徵，註冊到資料庫
             if (pstHandler->faceDatabase && pstHandler->faceDatabase->initialized) {
                 // 生成測試姓名（後續可改為用戶輸入）

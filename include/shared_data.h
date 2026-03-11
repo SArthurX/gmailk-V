@@ -29,7 +29,7 @@ extern pthread_mutex_t g_LockTimeMutex;
 extern std::map<int, time_t> g_mapTrackCenterTime;
 extern pthread_mutex_t g_CenterTimeMutex;
 
-// 軌跡特徵數據（track_id -> 128-dim feature）
+// 軌跡特徵數據（track_id -> feature vector）
 extern std::map<int, std::vector<float>> g_mapTrackFeatures;
 extern pthread_mutex_t g_FeatureMutex;
 
