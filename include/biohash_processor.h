@@ -7,10 +7,10 @@
 
 // ==================== BioHash + BCH 參數 ====================
 #define BIOHASH_DIM       512     // 投影維度 = ArcFace 特徵維度
-#define BIOHASH_K         64      // 可靠位元數
-#define BIOHASH_K_BYTES   ((BIOHASH_K + 7) / 8)  // = 8 bytes
-#define BCH_M             8       // GF(2^8), 碼字長度 n = 255
-#define BCH_T             10      // 糾錯能力：可糾正 10 個錯誤（512維取top 12.5% 穩定度高，t=10 足夠）
+#define BIOHASH_K         128     // 可靠位元數 (提高至 128 以提升安全性與穩定性)
+#define BIOHASH_K_BYTES   ((BIOHASH_K + 7) / 8)  // = 16 bytes
+#define BCH_M             9       // GF(2^9), 碼字長度 n = 511
+#define BCH_T             25      // 糾錯能力：可糾正 25 個錯誤 (容錯率 ~19.5%)
 
 /**
  * @brief BioHash 保護模板（不含 seed）
