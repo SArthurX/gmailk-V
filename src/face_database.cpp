@@ -1,4 +1,5 @@
 #include "face_database.h"
+#include "biohash_processor.h"
 #include "3rdparty/json/json.hpp"
 #include <fstream>
 #include <iostream>
@@ -36,7 +37,6 @@ int FaceDatabase_Load(FaceDatabase_t* database) {
   if (!database) 
     return -1;
 
-
   std::ifstream file(database->database_path);
   if (!file.is_open()) 
     return -1;
@@ -55,11 +55,11 @@ int FaceDatabase_Load(FaceDatabase_t* database) {
         person.id = person_json["id"];
         person.name = person_json["name"];
         
-        if (person_json.contains("feature") && person_json["feature"].is_array()) {
-          person.feature = person_json["feature"].get<std::vector<float>>();
+        if (person_json.contains("biohash_template") && person_json["biohash_template"].is_string()) {
+          person.biohash_template_hex = person_json["biohash_template"].get<std::string>();
         }
         
-        person.similarity = 0.0f;
+        person.bch_errors = 0;
         database->persons.push_back(person);
       }
     }
@@ -82,15 +82,15 @@ int FaceDatabase_Save(FaceDatabase_t* database) {
 
   try {
     json j;
-    j["version"] = "1.0";
-    j["threshold"] = database->similarity_threshold;
+    j["version"] = "2.0";
+    j["type"] = "biohash";
     j["persons"] = json::array();
 
     for (const auto& person : database->persons) {
       json person_json;
       person_json["id"] = person.id;
       person_json["name"] = person.name;
-      person_json["feature"] = person.feature;
+      person_json["biohash_template"] = person.biohash_template_hex;
       j["persons"].push_back(person_json);
     }
 
@@ -124,14 +124,14 @@ int FaceDatabase_Save(FaceDatabase_t* database) {
 
 // 新增人員
 int FaceDatabase_AddPerson(FaceDatabase_t* database, const char* name, 
-                            const float* feature, int feature_size) {
-  if (!database || !database->initialized || !name || !feature) {
+                            const std::string& template_hex) {
+  if (!database || !database->initialized || !name) {
     std::cerr << "FaceDatabase_AddPerson: Invalid parameters" << std::endl;
     return -1;
   }
 
-  if (feature_size <= 0) {
-    std::cerr << "FaceDatabase_AddPerson: Invalid feature size: " << feature_size << std::endl;
+  if (template_hex.empty()) {
+    std::cerr << "FaceDatabase_AddPerson: Empty template" << std::endl;
     return -1;
   }
 
@@ -144,24 +144,11 @@ int FaceDatabase_AddPerson(FaceDatabase_t* database, const char* name,
   PersonInfo_t person;
   person.id = new_id;
   person.name = name;
-  person.feature.assign(feature, feature + feature_size);
-  person.similarity = 0.0f;
+  person.biohash_template_hex = template_hex;
+  person.bch_errors = 0;
 
-  // 調試：輸出前5個特徵值
   std::cout << "FaceDatabase: Adding person [" << new_id << "] " << name << std::endl;
-  std::cout << "  Feature (first 5): ";
-  for (int i = 0; i < std::min(5, feature_size); i++) {
-    std::cout << feature[i] << " ";
-  }
-  std::cout << std::endl;
-  
-  // 調試：輸出完整特徵向量 (前20個)
-  std::cout << "  Feature (first 20): [";
-  for (int i = 0; i < std::min(20, feature_size); i++) {
-    std::cout << feature[i];
-    if (i < 19) std::cout << ", ";
-  }
-  std::cout << "]" << std::endl;
+  std::cout << "  Template size: " << template_hex.length() / 2 << " bytes" << std::endl;
 
   database->persons.push_back(person);
 
@@ -171,88 +158,60 @@ int FaceDatabase_AddPerson(FaceDatabase_t* database, const char* name,
   return new_id;
 }
 
-// 計算餘弦相似度
-float FaceDatabase_CosineSimilarity(const float* feature1, const float* feature2, int size) {
-  if (!feature1 || !feature2 || size <= 0)
-    return 0.0f;
-
-  float dot_product = 0.0f;
-  float norm1 = 0.0f;
-  float norm2 = 0.0f;
-
-  for (int i = 0; i < size; i++) {
-    dot_product += feature1[i] * feature2[i];
-    norm1 += feature1[i] * feature1[i];
-    norm2 += feature2[i] * feature2[i];
-  }
-
-  norm1 = std::sqrt(norm1);
-  norm2 = std::sqrt(norm2);
-
-  if (norm1 < 1e-6 || norm2 < 1e-6)
-    return 0.0f;
-
-  return dot_product / (norm1 * norm2);
-}
-
-// 比對人臉
-int FaceDatabase_Match(FaceDatabase_t* database, const float* feature, 
-                       int feature_size, PersonInfo_t* match_person) {
-  if (!database || !database->initialized || !feature || !match_person)
+// 驗證人臉 (BioHash + BCH)
+int FaceDatabase_Verify(FaceDatabase_t* database, const std::vector<float>& feature,
+                        BioHashProcessor& processor,
+                        PersonInfo_t* match_person, int& error_count) {
+  if (!database || !database->initialized || !match_person)
     return -1;
 
-  if (feature_size <= 0) {
-    std::cerr << "FaceDatabase_Match: Invalid feature size: " << feature_size << std::endl;
+  if (feature.empty()) {
+    std::cerr << "FaceDatabase_Verify: Empty feature vector" << std::endl;
     return -1;
   }
 
   if (database->persons.empty())
     return -1;  // 資料庫為空
 
+  std::cout << "[BioHash] Verifying against " << database->persons.size() << " persons..." << std::endl;
 
-  float max_similarity = -1.0f;
   int best_match_idx = -1;
+  int best_errors = BCH_T + 1;  // 初始化為超出糾錯能力
 
-  // 調試：輸出與所有人的相似度
-  std::cout << "[DEBUG] Similarity with all persons:" << std::endl;
-  std::cout << "  Query feature (first 10): [";
-  for (int i = 0; i < std::min(10, feature_size); i++) {
-    std::cout << feature[i];
-    if (i < 9) std::cout << ", ";
-  }
-  std::cout << "]" << std::endl;
-
-  // 找出最相似的人員
+  // 遍歷所有人員的模板
   for (size_t i = 0; i < database->persons.size(); i++) {
-    // 使用兩者的最小維度進行比對
-    int compare_size = std::min(feature_size, (int)database->persons[i].feature.size());
-    if (compare_size <= 0) continue;
+    if (database->persons[i].biohash_template_hex.empty()) continue;
     
-    float similarity = FaceDatabase_CosineSimilarity(
-      feature, 
-      database->persons[i].feature.data(), 
-      compare_size
-    );
-
-    std::cout << "  Person [" << database->persons[i].id << "] " 
-              << database->persons[i].name << ": " << similarity;
-    std::cout << " (first 20: [";
-    for (int j = 0; j < std::min(20, (int)database->persons[i].feature.size()); j++) {
-      std::cout << database->persons[i].feature[j];
-      if (j < 19) std::cout << ", ";
+    BioHashTemplate tmpl = BioHashTemplate::from_hex(database->persons[i].biohash_template_hex);
+    if (!tmpl.is_valid()) {
+      std::cerr << "  Person [" << database->persons[i].id << "] " 
+                << database->persons[i].name << ": invalid template, skipping" << std::endl;
+      continue;
     }
-    std::cout << "])" << std::endl;
-
-    if (similarity > max_similarity) {
-      max_similarity = similarity;
-      best_match_idx = i;
+    
+    int num_errors = 0;
+    bool success = processor.verify(feature, tmpl, num_errors);
+    
+    if (success) {
+      std::cout << "  Person [" << database->persons[i].id << "] " 
+                << database->persons[i].name << ": ✅ MATCH (errors=" << num_errors << ")" << std::endl;
+      
+      // 選擇錯誤數最少的匹配
+      if (num_errors < best_errors) {
+        best_errors = num_errors;
+        best_match_idx = i;
+      }
+    } else {
+      std::cout << "  Person [" << database->persons[i].id << "] " 
+                << database->persons[i].name << ": ❌ no match" << std::endl;
     }
   }
 
-  // 檢查是否超過閾值
-  if (max_similarity >= database->similarity_threshold && best_match_idx >= 0) {
+  // 返回最佳匹配
+  if (best_match_idx >= 0) {
     *match_person = database->persons[best_match_idx];
-    match_person->similarity = max_similarity;
+    match_person->bch_errors = best_errors;
+    error_count = best_errors;
     return 0;  // 找到匹配
   }
 

@@ -5,6 +5,7 @@
 #include "cvi_tdl.h"
 #include "oled_ctrl.h"
 #include "face_database.h"
+#include "biohash_processor.h"
 extern "C" {
 #include <cvi_comm.h>
 }
@@ -21,6 +22,7 @@ typedef struct {
     FaceFeatureExtractor *featureExtractor;  // 特徵提取器
     OLEDHandler_t *oledHandler;
     FaceDatabase_t *faceDatabase;  // 人臉資料庫
+    BioHashProcessor *biohashProcessor;  // BioHash 處理器
 } TDLHandler_t;
 
 CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath,
@@ -56,6 +58,11 @@ static inline void TDLHandler_SetOLEDHandler(TDLHandler_t *pstHandler, OLEDHandl
 static inline void TDLHandler_SetFaceDatabase(TDLHandler_t *pstHandler, FaceDatabase_t *faceDatabase) {
     if (pstHandler)
         pstHandler->faceDatabase = faceDatabase;
+}
+
+static inline void TDLHandler_SetBioHashProcessor(TDLHandler_t *pstHandler, BioHashProcessor *processor) {
+    if (pstHandler)
+        pstHandler->biohashProcessor = processor;
 }
 
 // static inline float CalculateDistanceToCenter(const cvtdl_bbox_t& bbox, uint32_t frameW, uint32_t frameH) {

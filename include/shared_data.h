@@ -36,7 +36,7 @@ extern pthread_mutex_t g_FeatureMutex;
 // 軌跡匹配結果（track_id -> person info: name, similarity）
 struct MatchResult {
     std::string name;
-    float similarity;
+    int bch_errors;      // BCH 糾正的錯誤數（越少越匹配）
     int person_id;
 };
 extern std::map<int, MatchResult> g_mapTrackMatchResults;

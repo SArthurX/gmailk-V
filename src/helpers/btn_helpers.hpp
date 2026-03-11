@@ -5,6 +5,7 @@
 #include "button_handler.h"
 #include "shared_data.h"
 #include "face_database.h"
+#include "biohash_processor.h"
 
 // 短按處理：重新識別當前鎖定的人臉
 static inline void HandleShortPress(TDLHandler_t *pstHandler) {
@@ -56,8 +57,9 @@ static inline void HandleLongPress(TDLHandler_t *pstHandler) {
         UNLOCK_FEATURE_MUTEX();
         
         if (hasFeature && !feature.empty()) {
-            // 有特徵，註冊到資料庫
-            if (pstHandler->faceDatabase && pstHandler->faceDatabase->initialized) {
+            // 有特徵，生成 BioHash 模板並註冊到資料庫
+            if (pstHandler->faceDatabase && pstHandler->faceDatabase->initialized
+                && pstHandler->biohashProcessor) {
                 // 生成測試姓名（後續可改為用戶輸入）
                 static int person_count = 0;
                 char name[64];
@@ -65,24 +67,32 @@ static inline void HandleLongPress(TDLHandler_t *pstHandler) {
                 snprintf(name, sizeof(name), "%s", test_names[person_count % 6]);
                 person_count++;
                 
-                int person_id = FaceDatabase_AddPerson(
-                    pstHandler->faceDatabase,
-                    name,
-                    feature.data(),
-                    feature.size()
-                );
+                // 生成 BioHash 模板（種子 = 當前 datetime，不存入模板）
+                uint64_t seed = BioHashProcessor::get_datetime_seed();
+                std::cout << "🔐 Generating BioHash template (seed=" << seed << ")" << std::endl;
+                BioHashTemplate tmpl = pstHandler->biohashProcessor->enroll(feature, seed);
                 
-                if (person_id > 0) {
-                    std::cout << "=== Face Registered ===" << std::endl;
-                    std::cout << "✅ Person added to database!" << std::endl;
-                    std::cout << "ID: " << person_id << std::endl;
-                    std::cout << "Name: " << name << std::endl;
-                    std::cout << "Track ID: " << selectedID << std::endl;
-                    std::cout << "======================" << std::endl;
+                if (tmpl.is_valid()) {
+                    int person_id = FaceDatabase_AddPerson(
+                        pstHandler->faceDatabase,
+                        name,
+                        tmpl.to_hex()
+                    );
+                    
+                    if (person_id > 0) {
+                        std::cout << "=== Face Registered (BioHash) ===" << std::endl;
+                        std::cout << "✅ Person added to database!" << std::endl;
+                        std::cout << "ID: " << person_id << std::endl;
+                        std::cout << "Name: " << name << std::endl;
+                        std::cout << "Track ID: " << selectedID << std::endl;
+                        std::cout << "Template (hex): " << tmpl.to_hex().substr(0, 40) << "..." << std::endl;
+                        std::cout << "================================" << std::endl;
+                    } else
+                        std::cerr << "❌ Failed to add person to database" << std::endl;
                 } else
-                    std::cerr << "❌ Failed to add person to database" << std::endl;
+                    std::cerr << "❌ BioHash template generation failed" << std::endl;
             } else
-                std::cerr << "❌ Face database not initialized" << std::endl;
+                std::cerr << "❌ Face database or BioHash processor not initialized" << std::endl;
         } else
             std::cout << "❌ No feature extracted for Track ID： " << selectedID 
                         << "\nPlease wait for feature extraction to complete" << std::endl;

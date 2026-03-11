@@ -62,6 +62,7 @@ include_directories(
     ${PROJECT_ROOT}/common
 
     ${PROJECT_ROOT}/src/3rdparty
+    ${PROJECT_ROOT}/src/3rdparty/bch
     ${PROJECT_ROOT}/src/drivers/ssd1306
     
     ${OPENCV_INCLUDE_DIR}

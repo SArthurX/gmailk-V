@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+class BioHashProcessor;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -12,8 +14,8 @@ extern "C" {
 typedef struct {
   int id;
   std::string name;
-  std::vector<float> feature;  // 特徵向量（維度由模型決定）
-  float similarity;             // 比對時的相似度
+  std::string biohash_template_hex;  // BioHash 保護模板 (hex 編碼)
+  int bch_errors;                     // 驗證時 BCH 糾正的錯誤數
 } PersonInfo_t;
 
 // 資料庫處理器
@@ -55,34 +57,25 @@ int FaceDatabase_Save(FaceDatabase_t* database);
  * @brief 新增人員到資料庫
  * @param database 資料庫處理器
  * @param name 人員姓名
- * @param feature 特徵向量
- * @param feature_size 特徵向量大小
+ * @param template_hex BioHash 保護模板 (hex 編碼)
  * @return 新增的人員 ID，失敗返回 -1
  * @note 會立即更新記憶體資料庫並寫入檔案
  */
 int FaceDatabase_AddPerson(FaceDatabase_t* database, const char* name, 
-                            const float* feature, int feature_size);
+                            const std::string& template_hex);
 
 /**
- * @brief 比對人臉特徵，找出最相似的人員
+ * @brief 驗證人臉特徵，使用 BioHash + BCH 解碼進行比對
  * @param database 資料庫處理器
- * @param feature 要比對的特徵向量
- * @param feature_size 特徵向量大小
+ * @param feature 要驗證的特徵向量 (512-dim)
+ * @param processor BioHash 處理器
  * @param match_person 輸出：匹配的人員資訊（如果有）
+ * @param error_count 輸出：BCH 糾正的錯誤數
  * @return 0 找到匹配，-1 沒有匹配
- * @note 在記憶體資料庫中進行比對，不讀取檔案
  */
-int FaceDatabase_Match(FaceDatabase_t* database, const float* feature, 
-                       int feature_size, PersonInfo_t* match_person);
-
-/**
- * @brief 計算兩個特徵向量的餘弦相似度
- * @param feature1 特徵向量1
- * @param feature2 特徵向量2
- * @param size 向量大小
- * @return 相似度 [0, 1]
- */
-float FaceDatabase_CosineSimilarity(const float* feature1, const float* feature2, int size);
+int FaceDatabase_Verify(FaceDatabase_t* database, const std::vector<float>& feature,
+                        BioHashProcessor& processor,
+                        PersonInfo_t* match_person, int& error_count);
 
 /**
  * @brief 取得資料庫中的所有人員

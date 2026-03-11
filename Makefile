@@ -19,7 +19,7 @@ endif
 CXX=$(TOOLCHAIN_PREFIX)g++
 CC=$(TOOLCHAIN_PREFIX)gcc
 CFLAGS +=  -fsigned-char -Wno-format-truncation -fdiagnostics-color=always -s -lpthread -latomic
-CXXFLAGS = $(CFLAGS) -std=c++11 -I./include -I$(COMMON_DIR)/../include/tdl
+CXXFLAGS = $(CFLAGS) -std=c++11 -I./include -I$(COMMON_DIR)/../include/tdl -I./src/3rdparty/bch
 
 LDFLAGS += -lini -lsns_full -lsample -lisp -lvdec -lvenc -lawb \
 		   -lae -laf -lcvi_bin -lcvi_bin_isp -lmisc -lisp_algo \
@@ -38,7 +38,7 @@ COMMON_OBJ = $(COMMON_SRC:.c=.o)
 CPP_SOURCES = $(wildcard src/*.cpp)
 CPP_OBJS = $(patsubst %.cpp, $(OBJ_DIR)/%.o, $(CPP_SOURCES))
 
-C_SOURCES = $(wildcard src/*.c)
+C_SOURCES = $(wildcard src/*.c) src/3rdparty/bch/bch_codec.c
 C_OBJS = $(patsubst %.c, $(OBJ_DIR)/%.o, $(C_SOURCES))
 
 SOURCE = main.cpp

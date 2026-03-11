@@ -29,6 +29,7 @@ CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath,
     pstHandler->buttonHandler = nullptr;
     pstHandler->featureExtractor = nullptr;
     pstHandler->oledHandler = nullptr;
+    pstHandler->biohashProcessor = nullptr;
     
     // Create TDL handle and assign VPSS Grp1 Device 0 to TDL SDK
     CVI_S32 s32Ret = CVI_TDL_CreateHandle2(&pstHandler->tdlHandle, 1, 0);
@@ -103,6 +104,9 @@ CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath,
     } else
         std::cout << "ℹ️  Feature extraction disabled (no ArcFace model specified)" << std::endl;
     
+    // Initialize BioHash processor
+    pstHandler->biohashProcessor = new BioHashProcessor();
+    
     std::cout << "TDL Handler initialized successfully" << std::endl;
     std::cout << "Model loaded: " << modelPath << std::endl;
     std::cout << "DeepSORT tracker initialized" << std::endl;
@@ -115,6 +119,10 @@ void TDLHandler_Cleanup(TDLHandler_t *pstHandler) {
         if (pstHandler->featureExtractor) {
             delete pstHandler->featureExtractor;
             pstHandler->featureExtractor = nullptr;
+        }
+        if (pstHandler->biohashProcessor) {
+            delete pstHandler->biohashProcessor;
+            pstHandler->biohashProcessor = nullptr;
         }
         if (pstHandler->serviceHandle)
             CVI_TDL_Service_DestroyHandle(pstHandler->serviceHandle);
@@ -228,8 +236,8 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
                 if (hasMatch) {
                     // 顯示匹配的姓名和相似度
                     char name_text[128];
-                    snprintf(name_text, sizeof(name_text), "%s (%.2f)", 
-                            matchResult.name.c_str(), matchResult.similarity);
+                    snprintf(name_text, sizeof(name_text), "%s (err:%d)", 
+                            matchResult.name.c_str(), matchResult.bch_errors);
                     
                     CVI_TDL_Service_ObjectWriteText(name_text, text_x, text_y - text_y_offset, pstFrame,
                                                    0.0f, 255.0f, 0.0f);  // Green text for match
@@ -419,33 +427,36 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
                                     stFaceMeta.info[i].feature.size = expected_dim;
                                     stFaceMeta.info[i].feature.type = TYPE_INT8;
                                     
-                                    // 立即與資料庫比對
-                                    if (pstHandler->faceDatabase && pstHandler->faceDatabase->initialized) {
+                                    // 立即與資料庫比對 (BioHash + BCH)
+                                    if (pstHandler->faceDatabase && pstHandler->faceDatabase->initialized
+                                        && pstHandler->biohashProcessor) {
                                         PersonInfo_t match_person;
-                                        int match_ret = FaceDatabase_Match(
+                                        int error_count = 0;
+                                        int match_ret = FaceDatabase_Verify(
                                             pstHandler->faceDatabase,
-                                            feature.data(),
-                                            feature.size(),
-                                            &match_person
+                                            feature,
+                                            *pstHandler->biohashProcessor,
+                                            &match_person,
+                                            error_count
                                         );
                                         
                                         if (match_ret == 0) {
                                             // 找到匹配
                                             std::cout << "🎯 Match Found!" << std::endl;
                                             std::cout << "   Name: " << match_person.name << std::endl;
-                                            std::cout << "   Similarity: " << match_person.similarity << std::endl;
+                                            std::cout << "   BCH Errors: " << error_count << std::endl;
                                             std::cout << "   Person ID: " << match_person.id << std::endl;
                                             
                                             // 存儲匹配結果
                                             LOCK_MATCH_RESULT_MUTEX();
                                             MatchResult result;
                                             result.name = match_person.name;
-                                            result.similarity = match_person.similarity;
+                                            result.bch_errors = error_count;
                                             result.person_id = match_person.id;
                                             g_mapTrackMatchResults[selectedID] = result;
                                             UNLOCK_MATCH_RESULT_MUTEX();
                                         } else {
-                                            std::cout << "❌ No match found (similarity below threshold)" << std::endl;
+                                            std::cout << "❌ No match found (BCH decode failed for all)" << std::endl;
                                             
                                             // 清除之前的匹配結果
                                             LOCK_MATCH_RESULT_MUTEX();
