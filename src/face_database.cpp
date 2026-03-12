@@ -175,43 +175,42 @@ int FaceDatabase_Verify(FaceDatabase_t* database, const std::vector<float>& feat
 
   std::cout << "[BioHash] Verifying against " << database->persons.size() << " persons..." << std::endl;
 
-  int best_match_idx = -1;
-  int best_errors = BCH_T + 1;  // 初始化為超出糾錯能力
-
-  // 遍歷所有人員的模板
+  // 1. 提取所有有效的模板
+  std::vector<BioHashTemplate> templates;
+  std::vector<size_t> person_indices; // 記錄 template 對應的 person 索引
+  
   for (size_t i = 0; i < database->persons.size(); i++) {
-    if (database->persons[i].biohash_template_hex.empty()) continue;
+    if (database->persons[i].biohash_template_hex.empty()) {
+      templates.push_back(BioHashTemplate()); // 推入空的以對齊索引
+      continue;
+    }
     
     BioHashTemplate tmpl = BioHashTemplate::from_hex(database->persons[i].biohash_template_hex);
     if (!tmpl.is_valid()) {
       std::cerr << "  Person [" << database->persons[i].id << "] " 
                 << database->persons[i].name << ": invalid template, skipping" << std::endl;
+      templates.push_back(BioHashTemplate()); // 推入空的以對齊索引
       continue;
     }
     
-    int num_errors = 0;
-    bool success = processor.verify(feature, tmpl, num_errors);
-    
-    if (success) {
-      std::cout << "  Person [" << database->persons[i].id << "] " 
-                << database->persons[i].name << ": ✅ MATCH (errors=" << num_errors << ")" << std::endl;
-      
-      // 選擇錯誤數最少的匹配
-      if (num_errors < best_errors) {
-        best_errors = num_errors;
-        best_match_idx = i;
-      }
-    } else {
-      std::cout << "  Person [" << database->persons[i].id << "] " 
-                << database->persons[i].name << ": ❌ no match" << std::endl;
-    }
+    templates.push_back(tmpl);
   }
-
-  // 返回最佳匹配
-  if (best_match_idx >= 0) {
-    *match_person = database->persons[best_match_idx];
+  
+  // 2. 呼叫高效的批量驗證
+  int best_errors = 0;
+  uint64_t matching_seed = 0;
+  int best_match_template_idx = processor.verify_multiple(feature, templates, best_errors, matching_seed);
+  
+  if (best_match_template_idx >= 0) {
+    // 最佳匹配
+    int original_person_idx = best_match_template_idx;
+    *match_person = database->persons[original_person_idx];
     match_person->bch_errors = best_errors;
     error_count = best_errors;
+    
+    std::cout << "  Person [" << match_person->id << "] " 
+              << match_person->name << ": ✅ MATCH (errors=" << best_errors 
+              << ", seed=" << matching_seed << ")" << std::endl;
     return 0;  // 找到匹配
   }
 

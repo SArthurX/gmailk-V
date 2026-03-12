@@ -363,6 +363,64 @@ bool BioHashProcessor::verify(const std::vector<float>& feature,
     return false;
 }
 
+int BioHashProcessor::verify_multiple(const std::vector<float>& feature, 
+                                      const std::vector<BioHashTemplate>& templates,
+                                      int& best_errors, uint64_t& matching_seed) {
+    if ((int)feature.size() != BIOHASH_DIM || templates.empty()) {
+        return -1;
+    }
+    
+    auto candidate_seeds = generate_candidate_seeds();
+    std::cout << "🔍 BioHash batch verify: " << templates.size() << " templates × " 
+              << candidate_seeds.size() << " seeds..." << std::endl;
+    
+    int best_match_idx = -1;
+    best_errors = BCH_T + 1; // 預設大於可糾正數量
+    
+    for (uint64_t seed : candidate_seeds) {
+        // 核心優化：對每個 seed，只做一次投影和二值化（計算量最大的部分）
+        auto matrix = generate_random_matrix(seed);
+        std::vector<float> biohash = biohash_projection(feature, matrix);
+        std::vector<uint8_t> all_bits = binarize(biohash);
+        
+        // 遍歷所有模板，只做提取和解碼（計算量極小）
+        for (size_t i = 0; i < templates.size(); i++) {
+            const auto& tmpl = templates[i];
+            if (!tmpl.is_valid()) continue;
+            
+            std::vector<uint8_t> selected_bits(BIOHASH_K);
+            for (int k = 0; k < BIOHASH_K; k++) {
+                if (tmpl.indices[k] >= 0 && tmpl.indices[k] < BIOHASH_DIM) {
+                    selected_bits[k] = all_bits[tmpl.indices[k]];
+                }
+            }
+            
+            int num_errors = 0;
+            if (bch_decode_and_verify(selected_bits, tmpl.codeword, tmpl.ecc_bytes_len, num_errors)) {
+                if (num_errors < best_errors) {
+                    best_errors = num_errors;
+                    best_match_idx = i;
+                    matching_seed = seed;
+                }
+            }
+        }
+        
+        // 可選優化：如果有完全無錯誤的匹配，提早結束
+        if (best_match_idx >= 0 && best_errors == 0) {
+            break;
+        }
+    }
+    
+    if (best_match_idx >= 0) {
+        std::cout << "✅ Batch verify success: match index " << best_match_idx 
+                  << " (seed=" << matching_seed << ", errors=" << best_errors << ")" << std::endl;
+    } else {
+        std::cout << "❌ Batch verify failed: no match found" << std::endl;
+    }
+    
+    return best_match_idx;
+}
+
 bool BioHashProcessor::verify_with_seed(const std::vector<float>& feature,
                                          const BioHashTemplate& tmpl,
                                          uint64_t seed, int& num_errors) {

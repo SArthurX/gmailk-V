@@ -66,12 +66,10 @@ public:
      * - 月級: YYYYMM (1個)
      * - 日級: YYYYMMDD (最多31個)
      * - 時級: YYYYMMDDHH (最多24個)
-     * - 分級: YYYYMMDDHHmm (最多60個)
-     * - 秒級: YYYYMMDDHHmmss (最多60個)
      * 
      * 驗證時從粗粒度開始嘗試，以提高效能。
      * 
-     * @return 候選種子列表（月→日→時→分→秒順序）
+     * @return 候選種子列表（月→日→時順序）
      */
     static std::vector<uint64_t> generate_candidate_seeds();
     
@@ -92,6 +90,18 @@ public:
      */
     bool verify(const std::vector<float>& feature, const BioHashTemplate& tmpl,
                 int& num_errors);
+
+    /**
+     * @brief 批量驗證測試特徵與多個模板，大幅優化效能
+     * @param feature 測試的特徵向量
+     * @param templates 要驗證的模板陣列
+     * @param best_errors [out] 最佳匹配的錯誤位元數
+     * @param matching_seed [out] 最佳匹配對應的種子
+     * @return 最佳匹配在陣列中的索引，若無匹配則回傳 -1
+     */
+    int verify_multiple(const std::vector<float>& feature, 
+                        const std::vector<BioHashTemplate>& templates,
+                        int& best_errors, uint64_t& matching_seed);
 
 private:
     /**
