@@ -1,6 +1,6 @@
 # gmailk-V
 
-[English](#english) | [中文](docs/lang/README_ch.md)
+[English](#english) | [中文](#chinese) | [專案全景狀態](docs/PROJECT_STATUS.md)
 
 ---
 
@@ -9,192 +9,157 @@
 
 ### Overview
 
-**gmailk-V** is a high-performance face detection application designed for CVITEK CV181X/CV180X RISC-V embedded platforms. It features real-time face detection, RTSP streaming, and a modular architecture optimized for embedded systems.
+**gmailk-V** is a privacy-preserving face detection & recognition system for **CVITEK CV181X/CV180X RISC-V** embedded platforms. It combines real-time AI inference with revocable biometric template protection (BioHash + BCH ECC), ensuring that **no raw face features are ever stored**.
 
 ### Features
 
-- 🎯 **Real-time Face Detection** - Powered by CVITEK TDL SDK
-- 📹 **RTSP Streaming** - H.264 video encoding with live face detection overlay
-- 🔧 **Modular Architecture** - Clean separation of concerns for easy maintenance
-- 🚀 **Multi-threaded Design** - Separate threads for detection and encoding
-- 🔌 **OpenCV & NCNN Integration** - Support for custom image processing and neural networks
-- 💻 **RISC-V Optimized** - Built for CVITEK CV181X/CV180X platforms
+- 🎯 **Real-time Face Detection** — SCRFD via CVITEK TDL SDK (TPU)
+- 🧠 **Face Recognition** — ArcFace 512-dim features (CVI TPU inference)
+- 🔐 **Privacy-Preserving Storage** — BioHash + BCH error-correcting codes (no raw features stored)
+- 🕐 **Auto-Expiring Templates** — Stateless time-based seeds with automatic revocation (~1 month)
+- 📹 **RTSP Streaming** — H.264 1280×720 with live face overlay (colored bounding boxes + IDs)
+- 🏃 **DeepSORT Tracking** — Stable face tracking with persistent IDs
+- 🔘 **Hardware Interaction** — GPIO button (short press: identify / long press: register), LED, SSD1306 OLED
+- 🚀 **Multi-threaded** — Separate TDL, VENC, and Button threads
+- ⚡ **Batch Verification** — O(Seed) + O(Person) optimized matching
 
 ### System Requirements
 
-- **Hardware**: CVITEK CV181X or CV180X SoC
+- **Hardware**: CVITEK CV181X or CV180X SoC (e.g., Milk-V Duo 256M)
 - **Toolchain**: RISC-V GCC cross-compiler (musl)
 - **Dependencies**: 
-  - CVITEK TDL SDK
-  - CVITEK Media SDK
-  - OpenCV
-  - NCNN
+  - CVITEK TDL SDK & Media SDK
+  - OpenCV (cross-compiled)
+  - CVI NN Runtime
 
 ### Project Structure
 
 ```
 gmailk-V/
-├── CMakeLists.txt          # CMake configuration
-├── build.sh                # Build script
-├── include/                # Header files
-│   ├── shared_data.h       # Shared data structures
-│   ├── system_init.h       # System initialization
-│   ├── tdl_handler.h       # TDL face detection handler
-│   ├── venc_handler.h      # Video encoding handler
-│   └── button_handler.h    # Button input handler
-├── src/                    # Source files
-│   ├── main.cpp            # Main entry point
-│   ├── shared_data.cpp
-│   ├── system_init.cpp
-│   ├── tdl_handler.cpp
-│   ├── venc_handler.cpp
-│   └── button_handler.cpp
-├── common/                 # Common utilities
-├── lib/                    # Third-party libraries
-│   ├── opencv/             # OpenCV library
-│   ├── ncnn/               # NCNN library
-│   ├── system/             # System libraries
-│   └── tdl/                # TDL libraries
-├── models/                 # Face detection models
-└── tools/                  # Build tools and scripts
-    ├── build_opencv.sh
-    └── build_ncnn.sh
+├── CMakeLists.txt              # Top-level CMake
+├── build.sh                    # Cross-compile script (RISC-V musl)
+├── config.json                 # Runtime configuration
+│
+├── src/                        # Source files (10 .cpp)
+│   ├── main.cpp                # Entry point, init & thread creation
+│   ├── shared_data.cpp         # Global shared data + mutexes
+│   ├── system_init.cpp         # VI/VPSS/VENC/RTSP initialization
+│   ├── tdl_handler.cpp         # Face detect + track + feature extract + verify
+│   ├── venc_handler.cpp        # H.264 encoding + RTSP + OSD drawing
+│   ├── button_handler.cpp      # GPIO button polling (short/long press)
+│   ├── biohash_processor.cpp   # BioHash + BCH core algorithm
+│   ├── face_database.cpp       # JSON face database (BioHash templates)
+│   ├── face_feature_extractor.cpp  # ArcFace TPU inference
+│   ├── oled_ctrl.cpp           # SSD1306 OLED display
+│   ├── helpers/                # Inline helper modules
+│   ├── 3rdparty/               # BCH codec, nlohmann/json
+│   └── drivers/                # SSD1306 I2C driver
+│
+├── include/                    # Header files
+├── models/                     # SCRFD + ArcFace .cvimodel files
+├── bioh-bch/                   # BioHash+BCH reference implementation & docs
+│   ├── process_explanation.md  # Algorithm walkthrough
+│   └── time_based_biohash_concept.md  # Architecture design & extensions
+├── data/                       # face_database.json (runtime)
+├── docs/                       # Documentation
+│   └── PROJECT_STATUS.md       # Full project status for AI collaboration
+├── common/                     # Middleware utilities
+├── lib/                        # Pre-built libraries (opencv, tdl, system)
+└── tools/                      # Toolchain & build scripts
 ```
 
-### Building the Project
-
-#### Step 1: Build Third-party Libraries (First Time Only)
+### Building
 
 ```bash
-cd tools
-
-# Build OpenCV
-./build_opencv.sh
-
-# Build NCNN
-./build_ncnn.sh
-```
-
-#### Step 2: Build the Main Application
-
-```bash
-# Configure for CV181X (default)
+# Build (default: CV181X, Release)
 ./build.sh
 
-# Or configure for CV180X
-./build.sh -c CV180X
-
-# Clean build
-./build.sh -c
+# Options
+./build.sh -d              # Debug build
+./build.sh -re             # Clean rebuild
+./build.sh --chip CV180X   # Target CV180X
+./build.sh -c              # Clean only
+./build.sh -t              # Build test directory
 ```
 
-The compiled binary will be located at: `build/main`
-
-### Running the Application
+### Running
 
 ```bash
-# Basic usage
-./build/main /path/to/face_detection_model.cvimodel
+# Detection only
+./main models/scrfd_det_face_432_768_INT8_cv181x.cvimodel
 
-# Example
-./build/main models/scrfd_det_face_432_768_INT8_cv181x.cvimodel
+# Detection + Recognition (ArcFace TPU)
+./main models/scrfd_det_face_432_768_INT8_cv181x.cvimodel models/arcface_cv181x_int8_sym.cvimodel
+
+# With OLED display
+./main models/scrfd.cvimodel models/arcface.cvimodel --oled
 ```
 
 ### RTSP Streaming
 
-After starting the application, you can view the video stream with face detection overlay:
-
 ```bash
-# Using VLC
 vlc rtsp://<device-ip>:554/h264
-
-# Using ffplay
 ffplay rtsp://<device-ip>:554/h264
 ```
 
-### Module Overview
+### Hardware Pinout
 
-#### 1. **shared_data** - Shared Data Module
-Manages thread-safe shared data between detection and encoding threads.
-
-**Key Components:**
-- `g_bExit` - Atomic flag for graceful shutdown
-- `g_stFaceMeta` - Global face detection results
-- `g_ResultMutex` - Mutex for thread synchronization
-
-#### 2. **system_init** - System Initialization Module
-Handles low-level system initialization (VI/VPSS/VENC/RTSP).
-
-**Key Functions:**
-- `SystemInit_All()` - One-call initialization
-- `SystemInit_Cleanup()` - Resource cleanup
-
-#### 3. **tdl_handler** - TDL Detection Module
-Encapsulates CVITEK TDL SDK for face detection.
-
-**Key Functions:**
-- `TDLHandler_Init()` - Initialize TDL and load model
-- `TDLHandler_DetectFace()` - Perform face detection
-- `TDLHandler_ThreadRoutine()` - Detection thread main loop
-
-#### 4. **venc_handler** - Video Encoding Module
-Handles H.264 encoding and RTSP streaming.
-
-**Key Functions:**
-- `VENCHandler_SendFrameRTSP()` - Send frame to RTSP
-- `VENCHandler_ThreadRoutine()` - Encoding thread main loop
+| Pin | Function | Notes |
+|-----|----------|-------|
+| GPIO 21 | Button input | Pull-up, active LOW |
+| GPIO 25 | LED output | Toggles on press |
+| I2C-3 | SSD1306 OLED | 128×64, optional (`--oled`) |
 
 ### Threading Architecture
 
 ```
 Main Thread
-├── TDL Thread (Face Detection)
-│   ├── Get frame from VPSS CHN1
-│   ├── Run face detection
-│   └── Update global face metadata (locked)
+├── TDL Thread (VPSS CHN1)
+│   ├── SCRFD face detection
+│   ├── DeepSORT tracking
+│   ├── Auto-lock (3s center dwell)
+│   ├── Button event handling
+│   ├── ArcFace feature extraction (TPU)
+│   ├── BioHash + BCH verification
+│   └── Update global face metadata
 │
-└── VENC Thread (Video Encoding)
-    ├── Get frame from VPSS CHN0
-    ├── Read face metadata (locked)
-    ├── Draw face rectangles
-    └── Send to RTSP stream
+├── VENC Thread (VPSS CHN0)
+│   ├── Read face metadata
+│   ├── Draw bounding boxes (🔴selected 🟡center 🟢stable 🔵unstable)
+│   ├── Draw crosshair + FPS
+│   └── H.264 → RTSP stream
+│
+└── Button Thread
+    └── GPIO polling → short press (identify) / long press (register)
 ```
 
-### Configuration
+### BioHash + BCH Parameters
 
-Edit `config.json` for custom settings:
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `BIOHASH_DIM` | 512 | Projection dim = ArcFace feature dim |
+| `BIOHASH_K` | 128 | Reliable bits selected |
+| `BCH_M` | 9 | GF(2^9), codeword length n=511 |
+| `BCH_T` | 25 | Error correction: up to 25 bits (~19.5%) |
 
-```json
-{
-  "chip": "CV181X",
-  "video": {
-    "width": 1920,
-    "height": 1080,
-    "fps": 30
-  },
-  "detection": {
-    "threshold": 0.5,
-    "model": "models/scrfd_det_face_432_768_INT8_cv181x.cvimodel"
-  }
-}
-```
+> Templates auto-expire when they exceed the candidate seed scan range (~1 month).  
+> See [bioh-bch/time_based_biohash_concept.md](bioh-bch/time_based_biohash_concept.md) for design details.
 
-### Troubleshooting
+### Documentation
 
-**Cannot find OpenCV/NCNN libraries:**
-- Make sure to build the libraries first using the scripts in `tools/`
-
-**RTSP stream not accessible:**
-- Check firewall settings
-- Verify the device IP address
-- Ensure port 554 is not blocked
-
-### Contributing
-
-Contributions are welcome! Please feel free to submit issues or pull requests.
+- [QUICKSTART.md](QUICKSTART.md) — Quick start guide
+- [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) — Full project status (for AI collaboration)
+- [bioh-bch/process_explanation.md](bioh-bch/process_explanation.md) — BioHash+BCH algorithm walkthrough
+- [bioh-bch/time_based_biohash_concept.md](bioh-bch/time_based_biohash_concept.md) — Architecture & extension roadmap
 
 ### License
 
 See [LICENSE](LICENSE) file for details.
 
 ---
+
+<a name="chinese"></a>
+## 中文
+
+請參閱 [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md) 取得完整中文專案狀態文件，  
+或 [QUICKSTART.md](QUICKSTART.md) 快速上手。

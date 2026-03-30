@@ -1,0 +1,293 @@
+# gmailk-V 專案全景狀態文件
+
+> **目的**：讓 AI 協作夥伴在下一次對話中快速進入狀況。
+> **最後更新**：2026-03-30
+
+---
+
+## 1. 專案概述
+
+**gmailk-V** 是一個在 **CVITEK CV181X RISC-V** 嵌入式平台上運行的**即時人臉偵測與辨識系統**。核心功能包括：
+
+| 功能 | 技術 |
+|------|------|
+| 人臉偵測 | SCRFD (CVI TDL SDK, TPU) |
+| 人臉追蹤 | DeepSORT |
+| 人臉辨識 | ArcFace (CVI TPU, 512 維特徵) |
+| 隱私保護 | BioHash + BCH 糾錯碼 (不儲存原始特徵) |
+| 視訊串流 | H.264 RTSP (1280×720) |
+| 硬體互動 | GPIO 按鈕、LED、SSD1306 OLED (128×64, I2C) |
+
+> [!IMPORTANT]
+> 辨識系統**不儲存原始人臉特徵**，僅儲存 BioHash 模板（可靠位元索引 + BCH ECC 碼字），具備**可撤銷性**和**隱私保護**特性。
+
+---
+
+## 2. 目錄結構
+
+```
+gmailk-V/
+├── CMakeLists.txt          # 頂層 CMake，連結 bch_codec + common + ssd1306
+├── build.sh                # 交叉編譯腳本 (RISC-V musl)
+├── Makefile                # 簡易 wrapper
+├── config.json             # 運行時配置
+├── envsetup.sh             # 環境變數設定
+│
+├── src/                    # 主要原始碼 (10 個 .cpp)
+│   ├── main.cpp
+│   ├── shared_data.cpp     # 全域共享資料 + mutex
+│   ├── system_init.cpp     # VI/VPSS/VENC/RTSP 初始化
+│   ├── tdl_handler.cpp     # 人臉偵測 + 追蹤 + 特徵提取 + BioHash 驗證主邏輯
+│   ├── venc_handler.cpp    # H.264 編碼 + RTSP 推流 + OSD 繪製
+│   ├── button_handler.cpp  # GPIO 按鈕輪詢 (短按/長按)
+│   ├── biohash_processor.cpp  # BioHash + BCH 核心算法
+│   ├── face_database.cpp   # JSON 人臉資料庫 (BioHash 模板)
+│   ├── face_feature_extractor.cpp  # ArcFace TPU 推理
+│   ├── oled_ctrl.cpp       # SSD1306 OLED 顯示控制
+│   ├── helpers/            # 內聯輔助模組
+│   │   ├── auto_lock_helper.hpp   # 中心自動鎖定邏輯
+│   │   ├── btn_helpers.hpp        # 按鈕事件處理 (短按辨識/長按註冊)
+│   │   ├── fps_helper.hpp         # FPS 計算
+│   │   ├── geometry_helper.hpp    # 尋找畫面中心最近的人臉
+│   │   └── oled_helper.hpp        # OLED 更新邏輯
+│   ├── 3rdparty/
+│   │   ├── bch/            # BCH 糾錯碼庫 (bch_codec.c/h)
+│   │   └── json/           # nlohmann/json 單頭檔
+│   └── drivers/
+│       └── ssd1306/        # SSD1306 OLED I2C 驅動
+│
+├── include/                # 標頭檔 (12 個 .h)
+│   ├── shared_data.h, system_init.h, tdl_handler.h
+│   ├── venc_handler.h, button_handler.h, oled_ctrl.h
+│   ├── biohash_processor.h, face_database.h
+│   ├── face_feature_extractor.h, draw_utils.h
+│   ├── cviruntime.h, cvitpu_debug.h
+│   ├── system/             # CVITEK 系統標頭
+│   ├── tdl/                # CVITEK TDL SDK 標頭
+│   └── utils/              # VPSS helper 等
+│
+├── models/                 # 3 個 .cvimodel
+│   ├── scrfd_det_face_432_768_INT8_cv181x.cvimodel  (~762KB)
+│   ├── arcface_cv181x_int8_sym.cvimodel             (~3.6MB)
+│   └── arcface_cv181x_bf16.cvimodel                 (~7.2MB)
+│
+├── bioh-bch/               # BioHash+BCH 獨立子專案 (Python/C++ 參考實作)
+│   ├── process_explanation.md   # 演算法流程詳解
+│   ├── time_based_biohash_concept.md  # 系統架構設計與擴展思路
+│   ├── CMakeLists.txt, Makefile
+│   ├── lib/, models/, examples/, test/, tools/
+│   └── ...
+│
+├── common/                 # middleware_utils, sample_utils 等共用 C 檔
+├── lib/                    # 預編譯庫 (opencv, ncnn, system, tdl 等)
+├── tools/                  # 交叉編譯工具鏈, cmake, build scripts
+├── data/                   # face_database.json 等運行時數據
+└── test/                   # 測試程式 (mian.c, CMakeLists.txt)
+```
+
+---
+
+## 3. 多執行緒架構
+
+```mermaid
+graph TB
+    subgraph "Main Thread"
+        A[main.cpp] --> B[SystemInit_All]
+        A --> C[TDLHandler_Init]
+        A --> D[ButtonHandler_Init]
+        A --> E[FaceDatabase_Init]
+        A --> F[OLEDHandler_Init]
+    end
+
+    subgraph "TDL Thread"
+        G[TDLHandler_ThreadRoutine] --> H[VPSS CHN1 取幀]
+        H --> I[SCRFD 人臉偵測]
+        I --> J[DeepSORT 追蹤]
+        J --> K[自動鎖定 / 按鈕處理]
+        K --> L[ArcFace 特徵提取]
+        L --> M[BioHash+BCH 驗證]
+        M --> N[更新全域 FaceMeta]
+    end
+
+    subgraph "VENC Thread"
+        O[VENCHandler_ThreadRoutine] --> P[VPSS CHN0 取幀]
+        P --> Q[讀取全域 FaceMeta]
+        Q --> R[繪製人臉框 + ID + 匹配結果]
+        R --> S[繪製十字準星 + FPS]
+        S --> T[RTSP 推流]
+    end
+
+    subgraph "Button Thread"
+        U[ButtonHandler_ThreadRoutine] --> V[GPIO 輪詢]
+        V --> W{短按 or 長按?}
+        W -->|短按| X[設定 BUTTON_PRESS_SHORT]
+        W -->|長按| Y[設定 BUTTON_PRESS_LONG]
+    end
+
+    N -.->|g_stFaceMeta + mutex| Q
+    X -.->|pressType| K
+    Y -.->|pressType| K
+```
+
+### 共享資料 (shared_data.h)
+
+| 全域變數 | 保護機制 | 用途 |
+|----------|----------|------|
+| `g_bExit` | `std::atomic<bool>` | 優雅退出信號 |
+| `g_stFaceMeta` / `g_stTracker` | `g_ResultMutex` | TDL→VENC 傳遞偵測結果 |
+| `g_iSelectedTrackID` | `g_SelectedTrackMutex` | 當前選中的追蹤 ID |
+| `g_mapTrackLockTime` | `g_LockTimeMutex` | 追蹤鎖定時間戳 |
+| `g_mapTrackCenterTime` | `g_CenterTimeMutex` | 中心自動鎖定計時 |
+| `g_mapTrackFeatures` | `g_FeatureMutex` | 提取的 512 維特徵 |
+| `g_mapTrackMatchResults` | `g_MatchResultMutex` | BioHash 比對結果 |
+| `g_fCurrentFPS` | `g_FPSMutex` | 當前幀率 |
+
+---
+
+## 4. 核心流程
+
+### 4.1 即時偵測與追蹤 (TDL Thread)
+
+1. 從 VPSS CHN1 取 1280×720 NV21 幀
+2. SCRFD 人臉偵測 → `cvtdl_face_t`
+3. DeepSORT 追蹤 → `cvtdl_tracker_t` (ID 穩定追蹤)
+4. **自動鎖定**：人臉在畫面中心超過 3 秒 → 自動選中 (紅框)
+5. **按鈕功能**：
+   - **短按**: 重新辨識選中的人臉
+   - **長按 (>2s)**: 註冊選中的人臉到資料庫
+
+### 4.2 特徵提取 (ArcFace TPU)
+
+- 使用 [FaceFeatureExtractor](file:///home/lilin/sx/gmailk-V/src/face_feature_extractor.cpp#4-50) 對選中的人臉進行 TPU 推理
+- 流程：NV21→RGB 轉換 → 5 點關鍵點仿射對齊 (112×112) → ArcFace → 512 維 L2 正規化特徵
+- 模型格式：[.cvimodel](file:///home/lilin/sx/gmailk-V/models/arcface_cv181x_bf16.cvimodel) (CVI NN Runtime)
+
+### 4.3 BioHash + BCH 驗證
+
+**參數配置** ([biohash_processor.h](file:///home/lilin/sx/gmailk-V/include/biohash_processor.h))：
+
+| 參數 | 值 | 說明 |
+|------|-----|------|
+| `BIOHASH_DIM` | 512 | 投影維度 = ArcFace 特徵維度 |
+| `BIOHASH_K` | 128 | 選取的可靠位元數 |
+| `BCH_M` | 9 | GF(2^9), 碼字長度 n=511 |
+| `BCH_T` | 25 | 糾錯能力：可糾正 25 bit 錯誤 (~19.5% 容錯率) |
+
+**註冊**：`feature` → 隨機投影(seed=YYYYMMDDHH) → 二值化(中位數閾值) → 128 可靠位元選擇 → BCH 編碼 → 儲存 `{indices, codeword}`
+
+**驗證**（無狀態種子策略）：
+1. 生成候選種子清單（月→日→時，從當前往回推）
+2. **核心優化**：每個 seed 只做一次投影+二值化，再對所有人比對 → O(Seed) + O(Person)
+3. BCH 解碼成功 (errors ≤ 25) 即通過
+
+**模板自動過期**：超過候選種子掃描範圍（~1 個月）的舊模板自動失效。
+
+### 4.4 資料庫 (face_database.cpp)
+
+- JSON 格式存於 [data/face_database.json](file:///home/lilin/sx/gmailk-V/data/face_database.json)
+- 儲存結構：`{ persons: [{ id, name, biohash_template }] }`
+- `biohash_template` 是 hex 編碼的 [BioHashTemplate](file:///home/lilin/sx/gmailk-V/include/biohash_processor.h#21-42)
+- **不儲存原始特徵向量**
+
+### 4.5 視訊輸出 (VENC Thread)
+
+- VPSS CHN0 → 人臉框繪製 (顏色編碼) → 十字準星 → FPS 顯示 → H.264 → RTSP
+
+**框色語義**：
+| 顏色 | 含義 |
+|------|------|
+| 🔴 紅色 | 已選中 (鎖定) 的人臉 |
+| 🟡 黃色 | 在中心準星範圍內 (可選中) 或新追蹤 |
+| 🟢 綠色 | 穩定追蹤中 |
+| 🔵 藍色 | 不穩定追蹤或無追蹤資訊 |
+
+### 4.6 OLED 顯示
+
+- SSD1306 128×64 單色 OLED (I2C)
+- 顯示內容：十字準星 + 人臉框 (座標映射 1280×720 → 128×64) + FPS + 人臉數量
+- 可選功能，需 `--oled` 參數啟用
+
+---
+
+## 5. 建構與部署
+
+```bash
+# 交叉編譯 (RISC-V musl 工具鏈)
+./build.sh                         # Release 建構
+./build.sh -d                      # Debug 建構
+./build.sh -re                     # 清除後重建
+./build.sh --chip CV180X           # 指定晶片
+
+# 部署到設備後執行
+./main models/scrfd_det_face_432_768_INT8_cv181x.cvimodel                    # 僅偵測
+./main models/scrfd.cvimodel models/arcface_cv181x_int8_sym.cvimodel         # 偵測+辨識
+./main models/scrfd.cvimodel models/arcface.cvimodel --oled                  # +OLED
+
+# 觀看 RTSP 串流
+vlc rtsp://<device-ip>:554/h264
+```
+
+- 工具鏈：[tools/riscv-toolchain.cmake](file:///home/lilin/sx/gmailk-V/tools/riscv-toolchain.cmake)
+- 依賴庫：`lib/` 下的 opencv, ncnn, system, tdl 預編譯庫
+
+---
+
+## 6. 硬體連接
+
+| 腳位 | 功能 | 說明 |
+|------|------|------|
+| GPIO 21 | 按鈕輸入 | 上拉，按下為 LOW |
+| GPIO 25 | LED 輸出 | 每次按鈕切換亮滅 |
+| I2C-3 | SSD1306 OLED | 128×64，可選 |
+| Camera | VI 輸入 | 透過 `/mnt/data/sensor_cfg.ini` 設定 |
+
+- VPSS 配置了 **180 度旋轉** (flip + mirror)
+
+---
+
+## 7. 歷史對話紀錄摘要
+
+| 主題 | 重點 |
+|------|------|
+| TPU ArcFace 整合 | 從 ncnn CPU 切換到 CVI TPU，512 維特徵，解決 linker 錯誤 |
+| BioHash 誤判分析 | 分析 BCH_T 和 seed 策略對 False Positive 的影響 |
+| BioHash 投影理解 | 步驟 4-5 的隨機矩陣生成和特徵投影 |
+| 長按註冊 Debug | 修復長按時特徵未存儲/識別的問題 |
+| AI Pipeline 死鎖 | CMA 記憶體洩漏、mutex 死鎖排查 |
+| 視訊注入調試 | IAV canvas 手動進給模式、解析度 / NV12 色偏問題 |
+| 資料庫 UI | 建立 JSON 資料庫互動介面（手機友好） |
+
+---
+
+## 8. 已知限制與潛在改進方向
+
+### 已實現 ✅
+- BioHash + BCH 可撤銷生物辨識
+- 無狀態時間種子（不儲存 seed）
+- O(Seed) + O(Person) 批量驗證優化
+- DeepSORT 人臉追蹤
+- 自動中心鎖定 (3 秒)
+- OLED 同步顯示
+- GPIO 按鈕操作 (短按辨識/長按註冊)
+
+### 未實現 / 可改進 🔧
+- **滑動視窗續期**：常客自動延期模板（concept doc 已設計）
+- **設備密鑰混淆**：`Seed = Hash(Time + DEVICE_SECRET_KEY)` 防時間偽造
+- **活體檢測**：防照片攻擊
+- **多核並行**：候選種子投影運算在雙核間分工
+- **布隆過濾器**：BCH 解碼前的 Hamming Weight 早期淘汰
+- **可變顆粒度過期**：依角色設定不同模板有效期
+- **雙因子驗證**：Face + Token/QR Code
+
+---
+
+## 9. 快速上手指南（給 AI）
+
+1. **找程式進入點**：看 [src/main.cpp](file:///home/lilin/sx/gmailk-V/src/main.cpp)，初始化順序清楚標註
+2. **主邏輯**：[src/tdl_handler.cpp](file:///home/lilin/sx/gmailk-V/src/tdl_handler.cpp) 的 [TDLHandler_ThreadRoutine()](file:///home/lilin/sx/gmailk-V/include/tdl_handler.h#45-46) 是核心迴圈
+3. **BioHash 算法**：[src/biohash_processor.cpp](file:///home/lilin/sx/gmailk-V/src/biohash_processor.cpp) + [include/biohash_processor.h](file:///home/lilin/sx/gmailk-V/include/biohash_processor.h)
+4. **資料庫操作**：[src/face_database.cpp](file:///home/lilin/sx/gmailk-V/src/face_database.cpp)
+5. **特徵提取**：[src/face_feature_extractor.cpp](file:///home/lilin/sx/gmailk-V/src/face_feature_extractor.cpp) (CVI NN TPU 推理)
+6. **按鈕處理**：[src/helpers/btn_helpers.hpp](file:///home/lilin/sx/gmailk-V/src/helpers/btn_helpers.hpp)（短按重新辨識、長按註冊）
+7. **自動鎖定**：[src/helpers/auto_lock_helper.hpp](file:///home/lilin/sx/gmailk-V/src/helpers/auto_lock_helper.hpp)
+8. **設計文件**：[bioh-bch/time_based_biohash_concept.md](file:///home/lilin/sx/gmailk-V/bioh-bch/time_based_biohash_concept.md) 和 [bioh-bch/process_explanation.md](file:///home/lilin/sx/gmailk-V/bioh-bch/process_explanation.md)
