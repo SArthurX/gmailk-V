@@ -1,7 +1,7 @@
 # gmailk-V 專案全景狀態文件
 
 > **目的**：讓 AI 協作夥伴在下一次對話中快速進入狀況。
-> **最後更新**：2026-03-30
+> **最後更新**：2026-04-07
 
 ---
 
@@ -270,6 +270,22 @@ vlc rtsp://<device-ip>:554/h264
 - OLED 同步顯示
 - GPIO 按鈕操作 (短按辨識/長按註冊)
 
+### 進行中 ⏳
+- **RPi 遠端模板儲存**：模板存放於 RPi (SQLite + FastAPI HTTP)，CV181X 透過 CDC-NCM 存取
+  - Web UI 分為「註冊」（照片上傳 + 資訊 + 日期種子 → 裝置處理 → 碼字）和「管理」（人員列表）
+  - 手機可透過 Wi-Fi AP 連接 RPi Web UI
+  - 加密酬載不可直接寫入，由裝置端 Fuzzy Commitment 流程自動產生
+  - 詳見 `docs/RPI_ARCHITECTURE.md`
+
+### 設計中 📐
+- **面部衍生金鑰 (Face-Derived Key) + Fuzzy Commitment**：
+  - 將現有 Systematic BCH（碼字含明文）改造為 Fuzzy Commitment 方案
+  - 使用 XOR sketch 隱藏金鑰：`δ = 人臉位元 ⊕ BCH(隨機金鑰)`，金鑰不以任何形式明文存在
+  - 驗證成功時 BCH 糾錯恢復隨機金鑰 → AES 解密附帶的加密酬載（姓名、年齡、權限等）
+  - 只有正確的臉才能恢復金鑰、解鎖資訊
+  - 模板格式 v2 向下兼容 v1
+  - 詳見 `docs/FACE_DERIVED_KEY_CONCEPT.md`
+
 ### 未實現 / 可改進 🔧
 - **滑動視窗續期**：常客自動延期模板（concept doc 已設計）
 - **設備密鑰混淆**：`Seed = Hash(Time + DEVICE_SECRET_KEY)` 防時間偽造
@@ -291,3 +307,6 @@ vlc rtsp://<device-ip>:554/h264
 6. **按鈕處理**：`src/helpers/btn_helpers.hpp`（短按重新辨識、長按註冊）
 7. **自動鎖定**：`src/helpers/auto_lock_helper.hpp`
 8. **設計文件**：`bioh-bch/time_based_biohash_concept.md` 和 `bioh-bch/process_explanation.md`
+9. **RPi 架構**：`docs/RPI_ARCHITECTURE.md`（遠端模板儲存設計與進度）
+10. **面部衍生金鑰**：`docs/FACE_DERIVED_KEY_CONCEPT.md`（加密酬載概念設計）
+11. **RPi Server 程式碼**：`gmailk-VVeb/py/main.py` + `gmailk-VVeb/index.html`
