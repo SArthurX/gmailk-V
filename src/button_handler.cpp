@@ -76,7 +76,7 @@ void *ButtonHandler_ThreadRoutine(void *pHandle) {
         pthread_exit(nullptr);
     }
     
-    int last_state = HIGH;
+    int last_state = LOW;
     int current_state;
     int led_state = 0;
     struct timeval press_start_time, press_end_time;
@@ -90,19 +90,19 @@ void *ButtonHandler_ThreadRoutine(void *pHandle) {
     while (!g_bExit) {
         current_state = digitalRead(handler->buttonPin);
         
-        if (last_state == HIGH && current_state == LOW) {
+        if (last_state == LOW && current_state == HIGH) {
             usleep(30000); 
-            if (digitalRead(handler->buttonPin) == LOW) {
+            if (digitalRead(handler->buttonPin) == HIGH) {
                 gettimeofday(&press_start_time, NULL);
                 button_was_pressed = true;
                 std::cout << "Button pressed..." << std::endl;
             }
         }
         
-        if (last_state == LOW && current_state == HIGH) {
+        if (last_state == HIGH && current_state == LOW) {
             usleep(30000);
             
-            if (digitalRead(handler->buttonPin) == HIGH && button_was_pressed) {
+            if (digitalRead(handler->buttonPin) == LOW && button_was_pressed) {
                 gettimeofday(&press_end_time, NULL);
                 button_was_pressed = false;
                 
