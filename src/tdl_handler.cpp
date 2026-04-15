@@ -30,6 +30,7 @@ CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath,
     pstHandler->featureExtractor = nullptr;
     pstHandler->oledHandler = nullptr;
     pstHandler->biohashProcessor = nullptr;
+    pstHandler->remoteDatabase = nullptr;
     
     // Create TDL handle and assign VPSS Grp1 Device 0 to TDL SDK
     CVI_S32 s32Ret = CVI_TDL_CreateHandle2(&pstHandler->tdlHandle, 1, 0);
@@ -428,17 +429,44 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
                                     stFaceMeta.info[i].feature.type = TYPE_INT8;
                                     
                                     // 立即與資料庫比對 (BioHash + BCH)
-                                    if (pstHandler->faceDatabase && pstHandler->faceDatabase->initialized
-                                        && pstHandler->biohashProcessor) {
+                                    if (pstHandler->biohashProcessor) {
                                         PersonInfo_t match_person;
                                         int error_count = 0;
-                                        int match_ret = FaceDatabase_Verify(
-                                            pstHandler->faceDatabase,
-                                            feature,
-                                            *pstHandler->biohashProcessor,
-                                            &match_person,
-                                            error_count
-                                        );
+                                        int match_ret = -1;
+                                        
+                                        // 優先使用遠端資料庫 (RPi)
+                                        if (pstHandler->remoteDatabase && pstHandler->remoteDatabase->initialized) {
+                                            std::vector<PersonInfo_t> remote_persons;
+                                            int fetch_ret = RemoteDatabase_FetchTemplates(
+                                                pstHandler->remoteDatabase, remote_persons);
+                                            
+                                            if (fetch_ret == 0 && !remote_persons.empty()) {
+                                                // 用遠端模板建立臨時資料庫
+                                                FaceDatabase_t tempDB;
+                                                tempDB.persons = remote_persons;
+                                                tempDB.initialized = true;
+                                                tempDB.similarity_threshold = 0.4f;
+                                                
+                                                match_ret = FaceDatabase_Verify(
+                                                    &tempDB, feature,
+                                                    *pstHandler->biohashProcessor,
+                                                    &match_person, error_count);
+                                            } else {
+                                                std::cerr << "⚠️  Remote fetch failed, trying local DB" << std::endl;
+                                            }
+                                        }
+                                        
+                                        // Fallback 到本地資料庫
+                                        if (match_ret != 0 && pstHandler->faceDatabase 
+                                            && pstHandler->faceDatabase->initialized) {
+                                            match_ret = FaceDatabase_Verify(
+                                                pstHandler->faceDatabase,
+                                                feature,
+                                                *pstHandler->biohashProcessor,
+                                                &match_person,
+                                                error_count
+                                            );
+                                        }
                                         
                                         if (match_ret == 0) {
                                             // 找到匹配

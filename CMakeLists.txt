@@ -11,6 +11,9 @@ add_library(bch_codec STATIC
 )
 target_include_directories(bch_codec PUBLIC ${PROJECT_ROOT}/src/3rdparty/bch)
 
+# httplib include (header-only HTTP client)
+include_directories(${PROJECT_ROOT}/src/3rdparty/httplib)
+
 file(GLOB CPP_SOURCES "src/*.cpp")
 file(GLOB C_SOURCES "src/*.c")
 

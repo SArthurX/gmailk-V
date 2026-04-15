@@ -6,6 +6,7 @@
 #include "shared_data.h"
 #include "face_database.h"
 #include "biohash_processor.h"
+#include "remote_database.h"
 
 // 短按處理：重新識別當前鎖定的人臉
 static inline void HandleShortPress(TDLHandler_t *pstHandler) {
@@ -73,15 +74,37 @@ static inline void HandleLongPress(TDLHandler_t *pstHandler) {
                 BioHashTemplate tmpl = pstHandler->biohashProcessor->enroll(feature, seed);
                 
                 if (tmpl.is_valid()) {
-                    int person_id = FaceDatabase_AddPerson(
-                        pstHandler->faceDatabase,
-                        name,
-                        tmpl.to_hex()
-                    );
+                    int person_id = -1;
+                    bool registered_remote = false;
+                    
+                    // 優先嘗試遠端註冊 (RPi HTTP)
+                    if (pstHandler->remoteDatabase && pstHandler->remoteDatabase->initialized) {
+                        person_id = RemoteDatabase_CreatePerson(
+                            pstHandler->remoteDatabase,
+                            name,
+                            tmpl.to_hex()
+                        );
+                        if (person_id > 0) {
+                            registered_remote = true;
+                            std::cout << "=== Face Registered (RPi Remote) ===" << std::endl;
+                        } else {
+                            std::cerr << "⚠️  RPi registration failed, falling back to local" << std::endl;
+                        }
+                    }
+                    
+                    // Fallback 到本地資料庫
+                    if (!registered_remote) {
+                        person_id = FaceDatabase_AddPerson(
+                            pstHandler->faceDatabase,
+                            name,
+                            tmpl.to_hex()
+                        );
+                    }
                     
                     if (person_id > 0) {
                         std::cout << "=== Face Registered (BioHash) ===" << std::endl;
-                        std::cout << "✅ Person added to database!" << std::endl;
+                        std::cout << "✅ Person added to " 
+                                  << (registered_remote ? "RPi" : "local") << " database!" << std::endl;
                         std::cout << "ID: " << person_id << std::endl;
                         std::cout << "Name: " << name << std::endl;
                         std::cout << "Track ID: " << selectedID << std::endl;
