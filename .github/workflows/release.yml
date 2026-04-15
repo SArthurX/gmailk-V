@@ -1,0 +1,70 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger on tags starting with 'v' (e.g., v1.0.0, v2.1)
+  workflow_dispatch: # Allow manual trigger from GitHub Actions tab
+    inputs:
+      release_tag:
+        description: 'Tag for release (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write # Needed to create releases and upload assets
+
+jobs:
+  build_and_release:
+    name: Build and Create Release
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive # Fetch submodules if any are used
+
+    - name: Install Build Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake make build-essential file
+
+    - name: Ensure Toolchain Permissions
+      run: |
+        # Ensure the cross-compilation toolchain is executable
+        chmod +x -R tools/host-tools/gcc/riscv64-linux-musl-x86_64/bin/
+        chmod +x -R tools/host-tools/gcc/riscv64-linux-musl-x86_64/riscv64-unknown-linux-musl/bin/
+        chmod +x -R tools/host-tools/gcc/riscv64-linux-musl-x86_64/libexec/
+
+    - name: Build Main Project (CV181X Release)
+      run: |
+        chmod +x ./build.sh
+        ./build.sh --release
+
+    - name: Build Test Project (Optional)
+      run: |
+        ./build.sh --release -t || echo "Test build skipped or failed"
+
+    - name: Prepare Release Assets
+      run: |
+        mkdir -p release_assets
+        # Main executable
+        if [ -f build/main ]; then
+          cp build/main release_assets/main_cv181x
+        fi
+        # Test executable (if available)
+        if [ -f test/build/test ]; then
+          cp test/build/test release_assets/test_cv181x
+        fi
+
+    - name: Create Release and Upload Assets
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
+        name: Release ${{ github.event.inputs.release_tag || github.ref_name }}
+        files: release_assets/*
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
