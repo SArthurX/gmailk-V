@@ -2,6 +2,8 @@ name: Build and Release
 
 on:
   push:
+    branches:
+      - develop
     tags:
       - 'v*' # Trigger on tags starting with 'v' (e.g., v1.0.0, v2.1)
   workflow_dispatch: # Allow manual trigger from GitHub Actions tab
@@ -51,14 +53,15 @@ jobs:
         mkdir -p release_assets
         # Main executable
         if [ -f build/main ]; then
-          cp build/main release_assets/main_cv181x
+          cp build/main release_assets/gmilk-V
         fi
         # Test executable (if available)
         if [ -f test/build/test ]; then
-          cp test/build/test release_assets/test_cv181x
+          cp test/build/test release_assets/gmilk-V_test
         fi
 
     - name: Create Release and Upload Assets
+      if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ github.event.inputs.release_tag || github.ref_name }}
