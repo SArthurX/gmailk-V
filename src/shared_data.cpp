@@ -22,6 +22,12 @@ pthread_mutex_t g_FeatureMutex;
 std::map<int, MatchResult> g_mapTrackMatchResults;
 pthread_mutex_t g_MatchResultMutex;
 
+// Pending 註冊佇列
+std::vector<PendingTask_t> g_vecPendingTasks;
+pthread_mutex_t g_PendingTaskMutex;
+std::vector<CompletedTask_t> g_vecCompletedTasks;
+pthread_mutex_t g_CompletedTaskMutex;
+
 void SharedData_Init() {
     g_bExit = false;
     std::memset(&g_stFaceMeta, 0, sizeof(cvtdl_face_t));
@@ -33,12 +39,16 @@ void SharedData_Init() {
     pthread_mutex_init(&g_CenterTimeMutex, NULL);
     pthread_mutex_init(&g_FeatureMutex, NULL);
     pthread_mutex_init(&g_MatchResultMutex, NULL);
+    pthread_mutex_init(&g_PendingTaskMutex, NULL);
+    pthread_mutex_init(&g_CompletedTaskMutex, NULL);
     g_fCurrentFPS = 0.0f;
     g_iSelectedTrackID = -1;
     g_mapTrackLockTime.clear();
     g_mapTrackCenterTime.clear();
     g_mapTrackFeatures.clear();
     g_mapTrackMatchResults.clear();
+    g_vecPendingTasks.clear();
+    g_vecCompletedTasks.clear();
 }
 
 void SharedData_Cleanup() {
@@ -51,8 +61,12 @@ void SharedData_Cleanup() {
     pthread_mutex_destroy(&g_CenterTimeMutex);
     pthread_mutex_destroy(&g_FeatureMutex);
     pthread_mutex_destroy(&g_MatchResultMutex);
+    pthread_mutex_destroy(&g_PendingTaskMutex);
+    pthread_mutex_destroy(&g_CompletedTaskMutex);
     g_mapTrackLockTime.clear();
     g_mapTrackCenterTime.clear();
     g_mapTrackFeatures.clear();
     g_mapTrackMatchResults.clear();
+    g_vecPendingTasks.clear();
+    g_vecCompletedTasks.clear();
 }

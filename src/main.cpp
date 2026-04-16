@@ -155,10 +155,14 @@ int main(int argc, char *argv[]) {
   stVencArgs.pstMWContext = &stMWContext;
   stVencArgs.pstTDLHandler = &stTDLHandler;
 
-  pthread_t stVencThread, stTDLThread, stButtonThread;
+  pthread_t stVencThread, stTDLThread, stButtonThread, stRemoteDBThread;
   pthread_create(&stVencThread, nullptr, VENCHandler_ThreadRoutine, &stVencArgs);
   pthread_create(&stTDLThread, nullptr, TDLHandler_ThreadRoutine, &stTDLHandler);
   pthread_create(&stButtonThread, nullptr, ButtonHandler_ThreadRoutine, &stButtonHandler);
+
+  if (remote_db_enabled) {
+    pthread_create(&stRemoteDBThread, nullptr, TDLHandler_RemoteDBThreadRoutine, &stTDLHandler);
+  }
 
   std::cout << "=== Face Detection Application Started ===" << std::endl;
   std::cout << "Short press button (GPIO 21): Lock face for recognition" << std::endl;
@@ -176,6 +180,9 @@ int main(int argc, char *argv[]) {
   pthread_join(stVencThread, nullptr);
   pthread_join(stTDLThread, nullptr);
   pthread_join(stButtonThread, nullptr);
+  if (remote_db_enabled) {
+      pthread_join(stRemoteDBThread, nullptr);
+  }
 
   std::cout << "=== Cleaning up resources ===" << std::endl;
 

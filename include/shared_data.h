@@ -43,6 +43,24 @@ extern std::map<int, MatchResult> g_mapTrackMatchResults;
 extern pthread_mutex_t g_MatchResultMutex;
 
 extern float g_fCurrentFPS;
+
+// Pending 註冊任務佇列（Background Thread → TDL Thread）
+struct PendingTask_t {
+    int person_id;
+    std::string name;
+    std::string local_photo_path;
+};
+extern std::vector<PendingTask_t> g_vecPendingTasks;
+extern pthread_mutex_t g_PendingTaskMutex;
+
+// 完成結果佇列（TDL Thread → Background Thread）
+struct CompletedTask_t {
+    int person_id;
+    std::string template_hex;
+    bool success;
+};
+extern std::vector<CompletedTask_t> g_vecCompletedTasks;
+extern pthread_mutex_t g_CompletedTaskMutex;
 extern pthread_mutex_t g_FPSMutex;
 
 #define LOCK_RESULT_MUTEX() pthread_mutex_lock(&g_ResultMutex)
@@ -65,6 +83,12 @@ extern pthread_mutex_t g_FPSMutex;
 
 #define LOCK_MATCH_RESULT_MUTEX() pthread_mutex_lock(&g_MatchResultMutex)
 #define UNLOCK_MATCH_RESULT_MUTEX() pthread_mutex_unlock(&g_MatchResultMutex)
+
+#define LOCK_PENDING_TASK_MUTEX() pthread_mutex_lock(&g_PendingTaskMutex)
+#define UNLOCK_PENDING_TASK_MUTEX() pthread_mutex_unlock(&g_PendingTaskMutex)
+
+#define LOCK_COMPLETED_TASK_MUTEX() pthread_mutex_lock(&g_CompletedTaskMutex)
+#define UNLOCK_COMPLETED_TASK_MUTEX() pthread_mutex_unlock(&g_CompletedTaskMutex)
 
 // 鎖定後需等待的秒數才開始提取特徵
 #define FEATURE_EXTRACT_LOCK_SECONDS 3

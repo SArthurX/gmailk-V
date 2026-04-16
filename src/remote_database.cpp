@@ -5,6 +5,7 @@
 #include "3rdparty/httplib/httplib.h"
 
 #include <iostream>
+#include <fstream>
 
 using json = nlohmann::json;
 
@@ -210,6 +211,145 @@ void RemoteDatabase_InvalidateCache(RemoteDatabase_t* db) {
     if (db) {
         db->cache_valid = false;
     }
+}
+
+// ─── 裝置端處理 Pending 註冊 ───
+
+int RemoteDatabase_FetchPendingPersons(RemoteDatabase_t* db, std::vector<PendingPerson_t>& pending_list) {
+    if (!db || !db->initialized) {
+        std::cerr << "RemoteDatabase_FetchPendingPersons: Not initialized" << std::endl;
+        return -1;
+    }
+
+    try {
+        httplib::Client cli(db->base_url);
+        cli.set_connection_timeout(3, 0);
+        cli.set_read_timeout(5, 0);
+
+        auto res = cli.Get("/api/pending");
+        if (!res) {
+            std::cerr << "RemoteDatabase: GET /api/pending failed (no response)" << std::endl;
+            db->connected = false;
+            return -1;
+        }
+
+        if (res->status != 200) {
+            std::cerr << "RemoteDatabase: GET /api/pending returned HTTP " << res->status << std::endl;
+            return -1;
+        }
+
+        db->connected = true;
+        json j = json::parse(res->body);
+        pending_list.clear();
+
+        if (!j.is_array()) {
+            std::cerr << "RemoteDatabase: Expected JSON array for /api/pending" << std::endl;
+            return -1;
+        }
+
+        for (const auto& item : j) {
+            PendingPerson_t pending;
+            pending.id = item.value("id", 0);
+            pending.name = item.value("name", "");
+            pending.photo_path = item.value("photo_path", "");
+            
+            if (!pending.photo_path.empty()) {
+                pending_list.push_back(pending);
+            }
+        }
+        return 0;
+
+    } catch (const std::exception& e) {
+        std::cerr << "RemoteDatabase: FetchPendingPersons error: " << e.what() << std::endl;
+        db->connected = false;
+    }
+    return -1;
+}
+
+int RemoteDatabase_DownloadPhoto(RemoteDatabase_t* db, const std::string& filename, const std::string& save_path) {
+    if (!db || !db->initialized) return -1;
+
+    // 防呆：strip "uploads/" 前綴，避免 /uploads/uploads/xxx
+    std::string clean_filename = filename;
+    if (clean_filename.substr(0, 8) == "uploads/") {
+        clean_filename = clean_filename.substr(8);
+    }
+
+    try {
+        httplib::Client cli(db->base_url);
+        cli.set_connection_timeout(3, 0);
+        cli.set_read_timeout(15, 0); // 圖片下載可能需要較長時間
+
+        std::string path = "/uploads/" + clean_filename;
+        auto res = cli.Get(path.c_str());
+
+        if (!res) {
+            std::cerr << "RemoteDatabase: GET " << path << " failed (no response)" << std::endl;
+            return -1;
+        }
+
+        if (res->status != 200) {
+            std::cerr << "RemoteDatabase: Failed to download photo, HTTP " << res->status << std::endl;
+            return -1;
+        }
+
+        std::ofstream out(save_path, std::ios::binary);
+        if (!out) {
+            std::cerr << "RemoteDatabase: Failed to open local file for writing: " << save_path << std::endl;
+            return -1;
+        }
+
+        out.write(res->body.data(), res->body.size());
+        out.close();
+
+        std::cout << "RemoteDatabase: Downloaded photo to " << save_path 
+                  << " (Size: " << res->body.size() << " bytes)" << std::endl;
+        return 0;
+
+    } catch (const std::exception& e) {
+        std::cerr << "RemoteDatabase: DownloadPhoto error: " << e.what() << std::endl;
+    }
+    return -1;
+}
+
+int RemoteDatabase_CompletePerson(RemoteDatabase_t* db, int id, const std::string& template_hex) {
+    if (!db || !db->initialized || template_hex.empty()) return -1;
+
+    try {
+        httplib::Client cli(db->base_url);
+        cli.set_connection_timeout(3, 0);
+        cli.set_read_timeout(5, 0);
+
+        json body;
+        body["biohash_template"] = template_hex;
+        
+        // Phase 3 預留: body["encrypted_payload"] = "...";
+
+        std::string path = "/api/persons/" + std::to_string(id) + "/complete";
+        auto res = cli.Post(path.c_str(), body.dump(), "application/json");
+
+        if (!res) {
+            std::cerr << "RemoteDatabase: POST " << path << " failed (no response)" << std::endl;
+            return -1;
+        }
+
+        if (res->status != 200 && res->status != 201) {
+            std::cerr << "RemoteDatabase: POST " << path << " returned HTTP " << res->status << std::endl;
+            if (!res->body.empty()) {
+                std::cerr << "  Response: " << res->body << std::endl;
+            }
+            return -1;
+        }
+
+        db->cache_valid = false; // 使快取失效，以便能夠拉取新完成的模板
+
+        std::cout << "RemoteDatabase: ✅ Completed remote registration for ID: " << id << std::endl;
+        return 0;
+
+    } catch (const std::exception& e) {
+        std::cerr << "RemoteDatabase: CompletePerson error: " << e.what() << std::endl;
+    }
+    return -1;
 }
 
 // ─── 清理 ───

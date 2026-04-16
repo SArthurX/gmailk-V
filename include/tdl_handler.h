@@ -17,6 +17,7 @@ class FaceFeatureExtractor;
 typedef struct {
     cvitdl_handle_t tdlHandle;
     cvitdl_service_handle_t serviceHandle;
+    pthread_mutex_t tdlMutex;
     const char *modelPath;
     const char *arcfaceCvimodelPath;  // ArcFace .cvimodel 路徑（TPU）
     ButtonHandler_t *buttonHandler;
@@ -45,6 +46,9 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
 CVI_S32 TDLHandler_CapturePhoto(VIDEO_FRAME_INFO_S *pstFrame, const char *filepath);
 
 void *TDLHandler_ThreadRoutine(void *pHandle);
+void *TDLHandler_RemoteDBThreadRoutine(void *pHandle);
+
+CVI_S32 TDLHandler_ProcessImageAndEnroll(TDLHandler_t *pstHandler, const char *imgPath, std::string &outTemplateHex);
 
 
 static inline void TDLHandler_SetButtonHandler(TDLHandler_t *pstHandler, ButtonHandler_t *buttonHandler) {

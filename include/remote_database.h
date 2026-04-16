@@ -6,6 +6,13 @@
 #include <ctime>
 #include "face_database.h"
 
+// 待處理註冊（Pending Registration）結構
+typedef struct {
+    int id;
+    std::string name;
+    std::string photo_path;
+} PendingPerson_t;
+
 // 遠端資料庫處理器（RPi HTTP Client）
 typedef struct {
     std::string base_url;       // e.g. "http://192.168.42.1:8787"
@@ -51,6 +58,32 @@ int RemoteDatabase_CreatePerson(RemoteDatabase_t* db, const char* name,
  * @return true 連線正常，false 連線失敗
  */
 bool RemoteDatabase_CheckConnection(RemoteDatabase_t* db);
+
+/**
+ * @brief 從 RPi 取得待處理 (pending) 的註冊紀錄
+ * @param db 遠端資料庫處理器
+ * @param pending_list 輸出：待處理人員列表
+ * @return 0 成功，-1 失敗
+ */
+int RemoteDatabase_FetchPendingPersons(RemoteDatabase_t* db, std::vector<PendingPerson_t>& pending_list);
+
+/**
+ * @brief 從 RPi 下載人員照片
+ * @param db 遠端資料庫處理器
+ * @param filename 要下載的照片檔名 (從 PendingPerson_t.photo_path 取得)
+ * @param save_path 儲存到本地的路徑
+ * @return 0 成功，-1 失敗
+ */
+int RemoteDatabase_DownloadPhoto(RemoteDatabase_t* db, const std::string& filename, const std::string& save_path);
+
+/**
+ * @brief 完成裝置端人員註冊，回傳 BioHash 碼字給 RPi
+ * @param db 遠端資料庫處理器
+ * @param id 人員 ID
+ * @param template_hex BioHash 模板 (hex 編碼)
+ * @return 0 成功，-1 失敗
+ */
+int RemoteDatabase_CompletePerson(RemoteDatabase_t* db, int id, const std::string& template_hex);
 
 /**
  * @brief 使快取失效，下次驗證時重新抓取

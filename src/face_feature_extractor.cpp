@@ -72,11 +72,58 @@ CVI_S32 FaceFeatureExtractor::extractFeature(
         return CVI_FAILURE;
     }
     
-    // 1. 將 NV21 幀轉換為 RGB buffer
+    // 根據幀格式選擇正確的轉換路徑
     int img_w, img_h;
-    unsigned char* rgb_full = nv21FrameToRGB(frame, img_w, img_h);
-    if (!rgb_full) {
-        std::cerr << "❌ Failed to convert frame to RGB" << std::endl;
+    unsigned char* rgb_full = nullptr;
+    
+    PIXEL_FORMAT_E fmt = frame->stVFrame.enPixelFormat;
+    if (fmt == PIXEL_FORMAT_NV21 || fmt == PIXEL_FORMAT_NV12) {
+        // 攝影機即時幀（NV21）
+        rgb_full = nv21FrameToRGB(frame, img_w, img_h);
+    } else if (fmt == PIXEL_FORMAT_RGB_888_PLANAR) {
+        // CVI_TDL_ReadImage 載入的照片（RGB planar: R plane → G plane → B plane）
+        img_w = frame->stVFrame.u32Width;
+        img_h = frame->stVFrame.u32Height;
+        
+        bool need_unmap = false;
+        if (!frame->stVFrame.pu8VirAddr[0]) {
+            size_t total_size = frame->stVFrame.u32Length[0] + frame->stVFrame.u32Length[1] + frame->stVFrame.u32Length[2];
+            frame->stVFrame.pu8VirAddr[0] = (CVI_U8*)CVI_SYS_Mmap(
+                frame->stVFrame.u64PhyAddr[0], total_size);
+            if (!frame->stVFrame.pu8VirAddr[0]) {
+                std::cerr << "❌ Failed to map RGB planar frame memory" << std::endl;
+                return CVI_FAILURE;
+            }
+            frame->stVFrame.pu8VirAddr[1] = frame->stVFrame.pu8VirAddr[0] + frame->stVFrame.u32Length[0];
+            frame->stVFrame.pu8VirAddr[2] = frame->stVFrame.pu8VirAddr[1] + frame->stVFrame.u32Length[1];
+            need_unmap = true;
+        }
+        
+        uint32_t stride = frame->stVFrame.u32Stride[0];
+        rgb_full = new unsigned char[img_w * img_h * 3];
+        const uint8_t* r_plane = frame->stVFrame.pu8VirAddr[0];
+        const uint8_t* g_plane = frame->stVFrame.pu8VirAddr[1];
+        const uint8_t* b_plane = frame->stVFrame.pu8VirAddr[2];
+        
+        for (int y = 0; y < img_h; y++) {
+            for (int x = 0; x < img_w; x++) {
+                int src_idx = y * stride + x;
+                int dst_idx = (y * img_w + x) * 3;
+                rgb_full[dst_idx + 0] = r_plane[src_idx];
+                rgb_full[dst_idx + 1] = g_plane[src_idx];
+                rgb_full[dst_idx + 2] = b_plane[src_idx];
+            }
+        }
+        
+        if (need_unmap) {
+            size_t total_size = frame->stVFrame.u32Length[0] + frame->stVFrame.u32Length[1] + frame->stVFrame.u32Length[2];
+            CVI_SYS_Munmap((void*)frame->stVFrame.pu8VirAddr[0], total_size);
+            frame->stVFrame.pu8VirAddr[0] = nullptr;
+            frame->stVFrame.pu8VirAddr[1] = nullptr;
+            frame->stVFrame.pu8VirAddr[2] = nullptr;
+        }
+    } else {
+        std::cerr << "❌ Unsupported pixel format for feature extraction: " << fmt << std::endl;
         return CVI_FAILURE;
     }
     
