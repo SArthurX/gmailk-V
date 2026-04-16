@@ -1,7 +1,7 @@
 # gmailk-V 專案全景狀態文件
 
 > **目的**：讓 AI 協作夥伴在下一次對話中快速進入狀況。
-> **最後更新**：2026-04-15
+> **最後更新**：2026-04-16 (Phase 2 pending 註冊完成)
 
 ---
 
@@ -276,9 +276,10 @@ vlc rtsp://<device-ip>:554/h264
   - CV181X HTTP client (cpp-httplib, `--rpi` 參數)
   - 遠端優先 + 本地 fallback
   - 30秒 TTL 快取機制
-
-### 進行中 ⏳
-- **Pending 註冊處理**：CV181X 從 RPi 下載照片 → ArcFace → BioHash → POST /api/persons/{id}/complete
+  - 任務佇列架構處理 pending 註冊（背景執行緒網路 I/O + TDL Thread 影像處理）
+  - 使用 `CVI_TDL_ReadImage` + `imgprocess_t` API（不依賴 VPSS 綁定狀態）
+  - `extractFeature` 格式感知：自動處理 NV21（攝影機）和 RGB_888_PLANAR（照片）
+  - RPi `GET /api/pending` 輕量端點
 
 ### 設計中 📐
 - **面部衍生金鑰 (Face-Derived Key) + Fuzzy Commitment**：

@@ -1,7 +1,7 @@
 # RPi 遠端模板儲存架構
 
 > **建立日期**：2026-04-07  
-> **狀態**：Phase 1 實作中
+> **狀態**：Phase 2 完成 ✅
 
 ---
 
@@ -109,7 +109,8 @@ DELETE /api/persons/{id}              # 刪除 (含清理照片)
 POST   /api/persons/{id}/complete     # 裝置回傳: 填入碼字完成註冊
 POST   /api/persons                   # CV181X 裝置端: 直接寫入完成的碼字
 GET    /api/templates                 # CV181X 專用: 只取已完成的碼字
-GET    /api/status                    # 系統狀態 (含 pending 數量)
+GET    /api/pending                   # CV181X 專用: 只取 pending 照片資訊（輕量）
+GET    /api/status                    # 系統狀態
 GET    /uploads/{filename}            # 取得上傳的照片
 ```
 
@@ -167,7 +168,11 @@ CV181X 存取: http://192.168.42.1:3000
 - [x] 修改 main.cpp 初始化 (`--rpi <url>` 參數)
 - [x] 修改 btn_helpers.hpp 註冊流程 (遠端優先 + 本地 fallback)
 - [x] 修改驗證流程：啟動時 GET /api/templates (帶快取)
-- [ ] 裝置端處理 pending 註冊：讀取照片 → BioHash → POST /api/persons/{id}/complete
+- [x] 裝置端處理 pending 註冊：任務佇列架構（背景執行緒下載照片 → TDL Thread 處理 → 背景執行緒回傳碼字）
+- [x] 使用 `CVI_TDL_ReadImage` + `imgprocess_t` API 讀取靜態照片（不依賴 VPSS 綁定狀態）
+- [x] `extractFeature` 格式感知：自動處理 NV21（攝影機）和 RGB_888_PLANAR（照片）
+- [x] 新增 RPi `GET /api/pending` 輕量端點
+- [x] 新增 `include/tdl/cvi_tdl_media.h` 標頭檔
 
 ### Phase 3：面部衍生金鑰 + 加密酬載（設計中）
 - [ ] 參見 `docs/FACE_DERIVED_KEY_CONCEPT.md`
