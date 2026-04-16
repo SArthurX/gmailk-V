@@ -161,12 +161,12 @@ CV181X 存取: http://192.168.42.1:3000
 - [x] 註冊/驗證流程分離，移除加密酬載手動輸入
 - [x] 新增 `/api/enroll` + `/api/persons/{id}/complete` + `/api/templates`
 
-### Phase 2：CV181X HTTP Client（待開始）
-- [ ] 引入 cpp-httplib.h
-- [ ] 新增 remote_database.cpp/h
-- [ ] 修改 main.cpp 初始化
-- [ ] 修改 btn_helpers.hpp 註冊流程
-- [ ] 修改驗證流程：啟動時 GET /api/templates
+### Phase 2：CV181X HTTP Client（基礎完成）
+- [x] 引入 cpp-httplib.h (header-only, `src/3rdparty/httplib/`)
+- [x] 新增 remote_database.cpp/h (HTTP client 封裝)
+- [x] 修改 main.cpp 初始化 (`--rpi <url>` 參數)
+- [x] 修改 btn_helpers.hpp 註冊流程 (遠端優先 + 本地 fallback)
+- [x] 修改驗證流程：啟動時 GET /api/templates (帶快取)
 - [ ] 裝置端處理 pending 註冊：讀取照片 → BioHash → POST /api/persons/{id}/complete
 
 ### Phase 3：面部衍生金鑰 + 加密酬載（設計中）

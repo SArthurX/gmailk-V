@@ -1,7 +1,7 @@
 # gmailk-V 專案全景狀態文件
 
 > **目的**：讓 AI 協作夥伴在下一次對話中快速進入狀況。
-> **最後更新**：2026-04-07
+> **最後更新**：2026-04-15
 
 ---
 
@@ -52,15 +52,17 @@ gmailk-V/
 │   │   └── oled_helper.hpp        # OLED 更新邏輯
 │   ├── 3rdparty/
 │   │   ├── bch/            # BCH 糾錯碼庫 (bch_codec.c/h)
-│   │   └── json/           # nlohmann/json 單頭檔
+│   │   ├── json/           # nlohmann/json 單頭檔
+│   │   └── httplib/        # cpp-httplib (header-only HTTP client)
 │   └── drivers/
 │       └── ssd1306/        # SSD1306 OLED I2C 驅動
 │
-├── include/                # 標頭檔 (12 個 .h)
+├── include/                # 標頭檔 (13 個 .h)
 │   ├── shared_data.h, system_init.h, tdl_handler.h
 │   ├── venc_handler.h, button_handler.h, oled_ctrl.h
 │   ├── biohash_processor.h, face_database.h
 │   ├── face_feature_extractor.h, draw_utils.h
+│   ├── remote_database.h       # RPi HTTP client
 │   ├── cviruntime.h, cvitpu_debug.h
 │   ├── system/             # CVITEK 系統標頭
 │   ├── tdl/                # CVITEK TDL SDK 標頭
@@ -269,13 +271,14 @@ vlc rtsp://<device-ip>:554/h264
 - 自動中心鎖定 (3 秒)
 - OLED 同步顯示
 - GPIO 按鈕操作 (短按辨識/長按註冊)
+- **RPi 遠端模板儲存** (Phase 1 + Phase 2)
+  - RPi FastAPI HTTP Server + SQLite + Web UI
+  - CV181X HTTP client (cpp-httplib, `--rpi` 參數)
+  - 遠端優先 + 本地 fallback
+  - 30秒 TTL 快取機制
 
 ### 進行中 ⏳
-- **RPi 遠端模板儲存**：模板存放於 RPi (SQLite + FastAPI HTTP)，CV181X 透過 CDC-NCM 存取
-  - Web UI 分為「註冊」（照片上傳 + 資訊 + 日期種子 → 裝置處理 → 碼字）和「管理」（人員列表）
-  - 手機可透過 Wi-Fi AP 連接 RPi Web UI
-  - 加密酬載不可直接寫入，由裝置端 Fuzzy Commitment 流程自動產生
-  - 詳見 `docs/RPI_ARCHITECTURE.md`
+- **Pending 註冊處理**：CV181X 從 RPi 下載照片 → ArcFace → BioHash → POST /api/persons/{id}/complete
 
 ### 設計中 📐
 - **面部衍生金鑰 (Face-Derived Key) + Fuzzy Commitment**：
@@ -287,7 +290,7 @@ vlc rtsp://<device-ip>:554/h264
   - 詳見 `docs/FACE_DERIVED_KEY_CONCEPT.md`
 
 ### 未實現 / 可改進 🔧
-- **滑動視窗續期**：常客自動延期模板（concept doc 已設計）
+- **滑動視窗續期**：常客自動延期模板（concept doc 已設計）          
 - **設備密鑰混淆**：`Seed = Hash(Time + DEVICE_SECRET_KEY)` 防時間偽造
 - **活體檢測**：防照片攻擊
 - **多核並行**：候選種子投影運算在雙核間分工
@@ -310,3 +313,4 @@ vlc rtsp://<device-ip>:554/h264
 9. **RPi 架構**：`docs/RPI_ARCHITECTURE.md`（遠端模板儲存設計與進度）
 10. **面部衍生金鑰**：`docs/FACE_DERIVED_KEY_CONCEPT.md`（加密酬載概念設計）
 11. **RPi Server 程式碼**：`gmailk-VVeb/py/main.py` + `gmailk-VVeb/index.html`
+12. **遠端資料庫**：`src/remote_database.cpp` + `include/remote_database.h`（CV181X HTTP client）
