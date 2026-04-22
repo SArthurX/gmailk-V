@@ -11,10 +11,11 @@
 #include "face_feature_extractor.h"
 #include "tdl/core/cvi_tdl_utils.h"
 #include "helpers/btn_helpers.hpp"
-#include "helpers/geometry_helper.hpp"
 #include "helpers/auto_lock_helper.hpp"
 #include "helpers/fps_helper.hpp"
 #include "helpers/oled_helper.hpp"
+#include "helpers/feature_verify_helper.hpp"
+#include "helpers/pending_task_helper.hpp"
 
 extern "C" {
 #include <cvi_sys.h>
@@ -307,6 +308,21 @@ CVI_S32 TDLHandler_CapturePhoto(VIDEO_FRAME_INFO_S *pstFrame, const char *filepa
     return ret;
 }
 
+// 更新全局人臉和追蹤數據（TDL Thread → VENC Thread）
+static inline void SyncGlobalFaceData(
+    cvtdl_face_t *pstFaceMeta,
+    cvtdl_tracker_t *pstTracker)
+{
+    LOCK_RESULT_MUTEX();
+    std::memset(&g_stFaceMeta, 0, sizeof(cvtdl_face_t));
+    std::memset(&g_stTracker, 0, sizeof(cvtdl_tracker_t));
+    if (pstFaceMeta->info != nullptr)
+        CVI_TDL_CopyFaceMeta(pstFaceMeta, &g_stFaceMeta);
+    if (pstTracker->info != nullptr)
+        CVI_TDL_CopyTrackerMeta(pstTracker, &g_stTracker);
+    UNLOCK_RESULT_MUTEX();
+}
+
 void *TDLHandler_ThreadRoutine(void *pHandle) {
     std::cout << "Enter TDL thread" << std::endl;
     
@@ -317,18 +333,12 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
     CVI_S32 s32Ret;
     
     struct timeval t0, t1;
-    unsigned long execution_time;
     FPSCalculator_t fps_calculator;
     FPSCalculator_Init(&fps_calculator);
-    static uint32_t s_u32LastFaceSize = 0;
     
     while (!g_bExit) {
+        // === 1. 幀獲取 ===
         s32Ret = CVI_VPSS_GetChnFrame(0, VPSS_CHN1, &stFrame, 2000);
-        
-        // Get selected track ID
-        LOCK_SELECTED_TRACK_MUTEX();
-        int selectedTrackID = g_iSelectedTrackID;
-        UNLOCK_SELECTED_TRACK_MUTEX();
         
         if (s32Ret == CVI_SUCCESS) {
             static bool bFirstFrame = true;
@@ -348,11 +358,10 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
             break;
         }
         
+        // === 2. 人臉偵測 ===
         std::memset(&stFaceMeta, 0, sizeof(cvtdl_face_t));
         gettimeofday(&t0, NULL);
-        
         s32Ret = TDLHandler_DetectFace(pstHandler, &stFrame, &stFaceMeta);
-        
         gettimeofday(&t1, NULL);
         
         if (s32Ret != CVI_TDL_SUCCESS) {
@@ -365,7 +374,7 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
             continue;
         }
         
-        // Perform DeepSORT tracking
+        // === 3. DeepSORT 追蹤 + 後續處理 ===
         std::memset(&stTracker, 0, sizeof(cvtdl_tracker_t));
         if (stFaceMeta.size > 0) {
             s32Ret = CVI_TDL_DeepSORT_Face(pstHandler->tdlHandle, &stFaceMeta, &stTracker);
@@ -373,247 +382,37 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
                 std::cerr << "DeepSORT tracking failed, ret=0x" << std::hex << s32Ret << std::endl;
             }
             
-            // === 自動鎖定機制：檢測在中心超過3秒的人臉 ===
+            // 4. 自動鎖定：檢測在中心超過3秒的人臉
             if (stTracker.size > 0) {
                 ProcessAutoLock(&stFaceMeta, &stTracker, &stFrame);
             }
             
-            // === 按鈕處理（在追蹤完成後） ===
+            // 5. 按鈕處理（在追蹤完成後）
             if (pstHandler->buttonHandler) {
                 ButtonHandler_Inputs(pstHandler);
                 ButtonHandler_ClearPressType(pstHandler->buttonHandler);
             }
 
-            // Extract features for tracked faces (if feature extractor is available)
-            // 對選中的人臉立即提取特徵（已在自動鎖定時等待3秒）
-            if (pstHandler->featureExtractor && stTracker.size > 0) {
-                LOCK_SELECTED_TRACK_MUTEX();
-                int selectedID = g_iSelectedTrackID;
-                UNLOCK_SELECTED_TRACK_MUTEX();
-                
-                if (selectedID != -1) {
-                    // 找到選中的軌跡並提取特徵
-                    for (uint32_t i = 0; i < stFaceMeta.size; i++) {
-                        if (stTracker.info[i].id == selectedID) {
-                            // 檢查是否已經提取過特徵
-                            LOCK_FEATURE_MUTEX();
-                            bool hasFeature = (g_mapTrackFeatures.find(selectedID) != g_mapTrackFeatures.end());
-                            UNLOCK_FEATURE_MUTEX();
-                            
-                            if (!hasFeature) {
-                                std::cout << "🔍 Extracting feature for Track ID " << selectedID << "..." << std::endl;
-                                
-                                std::vector<float> feature;
-                                pthread_mutex_lock(&pstHandler->tdlMutex);
-                                CVI_S32 feat_ret = pstHandler->featureExtractor->extractFeature(
-                                    &stFrame,
-                                    &stFaceMeta.info[i],
-                                    feature
-                                );
-                                pthread_mutex_unlock(&pstHandler->tdlMutex);
-                                
-                                int expected_dim = pstHandler->featureExtractor->getFeatureDim();
-                                if (feat_ret == CVI_SUCCESS && (int)feature.size() == expected_dim) {
-                                    // 調試：輸出前5個特徵值
-                                    std::cout << "✅ Feature extracted for Track ID " << selectedID << std::endl;
-                                    std::cout << "  Feature (first 5): ";
-                                    for (int k = 0; k < 5; k++) {
-                                        std::cout << feature[k] << " ";
-                                    }
-                                    std::cout << std::endl;
-                                    
-                                    // 存儲特徵到全局 map
-                                    LOCK_FEATURE_MUTEX();
-                                    g_mapTrackFeatures[selectedID] = feature;
-                                    UNLOCK_FEATURE_MUTEX();
-                                    
-                                    // 填充到 face meta（供 DeepSORT 使用）
-                                    if (!stFaceMeta.info[i].feature.ptr) {
-                                        stFaceMeta.info[i].feature.ptr = (int8_t*)malloc(expected_dim);
-                                    }
-                                    
-                                    for (int j = 0; j < expected_dim; j++) {
-                                        float val = feature[j] * 127.0f;
-                                        val = val < -128.0f ? -128.0f : (val > 127.0f ? 127.0f : val);
-                                        stFaceMeta.info[i].feature.ptr[j] = (int8_t)val;
-                                    }
-                                    stFaceMeta.info[i].feature.size = expected_dim;
-                                    stFaceMeta.info[i].feature.type = TYPE_INT8;
-                                    
-                                    // 立即與資料庫比對 (BioHash + BCH)
-                                    if (pstHandler->biohashProcessor) {
-                                        PersonInfo_t match_person;
-                                        int error_count = 0;
-                                        int match_ret = -1;
-                                        
-                                        // 優先使用遠端資料庫 (RPi)
-                                        if (pstHandler->remoteDatabase && pstHandler->remoteDatabase->initialized) {
-                                            std::vector<PersonInfo_t> remote_persons;
-                                            int fetch_ret = RemoteDatabase_FetchTemplates(
-                                                pstHandler->remoteDatabase, remote_persons);
-                                            
-                                            if (fetch_ret == 0 && !remote_persons.empty()) {
-                                                // 用遠端模板建立臨時資料庫
-                                                FaceDatabase_t tempDB;
-                                                tempDB.persons = remote_persons;
-                                                tempDB.initialized = true;
-                                                tempDB.similarity_threshold = 0.4f;
-                                                
-                                                match_ret = FaceDatabase_Verify(
-                                                    &tempDB, feature,
-                                                    *pstHandler->biohashProcessor,
-                                                    &match_person, error_count);
-                                            } else {
-                                                std::cerr << "⚠️  Remote fetch failed, trying local DB" << std::endl;
-                                            }
-                                        }
-                                        
-                                        // Fallback 到本地資料庫
-                                        if (match_ret != 0 && pstHandler->faceDatabase 
-                                            && pstHandler->faceDatabase->initialized) {
-                                            match_ret = FaceDatabase_Verify(
-                                                pstHandler->faceDatabase,
-                                                feature,
-                                                *pstHandler->biohashProcessor,
-                                                &match_person,
-                                                error_count
-                                            );
-                                        }
-                                        
-                                        if (match_ret == 0) {
-                                            // 找到匹配
-                                            std::cout << "🎯 Match Found!" << std::endl;
-                                            std::cout << "   Name: " << match_person.name << std::endl;
-                                            std::cout << "   BCH Errors: " << error_count << std::endl;
-                                            std::cout << "   Person ID: " << match_person.id << std::endl;
-                                            
-                                            // 存儲匹配結果
-                                            LOCK_MATCH_RESULT_MUTEX();
-                                            MatchResult result;
-                                            result.name = match_person.name;
-                                            result.bch_errors = error_count;
-                                            result.person_id = match_person.id;
-                                            g_mapTrackMatchResults[selectedID] = result;
-                                            UNLOCK_MATCH_RESULT_MUTEX();
-                                        } else {
-                                            std::cout << "❌ No match found (BCH decode failed for all)" << std::endl;
-                                            
-                                            // 清除之前的匹配結果
-                                            LOCK_MATCH_RESULT_MUTEX();
-                                            g_mapTrackMatchResults.erase(selectedID);
-                                            UNLOCK_MATCH_RESULT_MUTEX();
-                                        }
-                                    }
-                                } else
-                                    std::cerr << "❌ Feature extraction failed for Track ID " << selectedID << std::endl;
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
+            // 6. 特徵提取 + BioHash 驗證
+            ProcessFeatureAndVerify(pstHandler, &stFaceMeta, &stTracker, &stFrame);
         }
         
-        execution_time = ((t1.tv_sec - t0.tv_sec) * 1000000 + t1.tv_usec - t0.tv_usec);
+        // === 7. FPS 計算 + OLED 更新 ===
         FPSCalculator_Update(&fps_calculator);
         float current_fps = FPSCalculator_GetFPS(&fps_calculator);
-
-        
-        // if (stFaceMeta.size > 0) {
-        //     std::cout << "=== Face Detection & Tracking Results ===" << std::endl;
-        //     std::cout << "Face count: " << stFaceMeta.size << std::endl;
-        //     std::cout << "Tracker count: " << stTracker.size << std::endl;
-        //     std::cout << "Inference time: " << (float)execution_time / 1000 << " ms" << std::endl;
-        //     std::cout << "FPS: " << current_fps << std::endl;
-        //     std::cout << "Frame size: " << stFrame.stVFrame.u32Width << "x" 
-        //               << stFrame.stVFrame.u32Height << std::endl;
-            
-        //     for (uint32_t i = 0; i < stTracker.size; i++) {
-        //         const char* state_str = "UNKNOWN";
-        //         switch(stTracker.info[i].state) {
-        //             case CVI_TRACKER_NEW: state_str = "NEW"; break;
-        //             case CVI_TRACKER_UNSTABLE: state_str = "UNSTABLE"; break;
-        //             case CVI_TRACKER_STABLE: state_str = "STABLE"; break;
-        //         }
-                
-        //         std::cout << "Track[" << i << "] ID=" << stTracker.info[i].id
-        //                   << " state=" << state_str
-        //                   << " bbox: x1=" << stTracker.info[i].bbox.x1 << ", "
-        //                   << "y1=" << stTracker.info[i].bbox.y1 << ", "
-        //                   << "x2=" << stTracker.info[i].bbox.x2 << ", "
-        //                   << "y2=" << stTracker.info[i].bbox.y2 << std::endl;
-        //     }
-        //     std::cout << "========================================" << std::endl;
-        // } else if (stFaceMeta.size != s_u32LastFaceSize) {
-        //     std::cout << "No face detected" << std::endl;
-        // }
-        
-        s_u32LastFaceSize = stFaceMeta.size;
-        
-        // 更新 OLED 顯示
         UpdateOLEDDisplay(pstHandler->oledHandler, &stFaceMeta, &stFrame, current_fps);
-
         
-        // 更新全局人臉和追蹤數據
-        {
-            LOCK_RESULT_MUTEX();
-            std::memset(&g_stFaceMeta, 0, sizeof(cvtdl_face_t));
-            std::memset(&g_stTracker, 0, sizeof(cvtdl_tracker_t));
-            if (stFaceMeta.info != nullptr)
-                CVI_TDL_CopyFaceMeta(&stFaceMeta, &g_stFaceMeta);
-            if (stTracker.info != nullptr)
-                CVI_TDL_CopyTrackerMeta(&stTracker, &g_stTracker);
-            UNLOCK_RESULT_MUTEX();
-        }
+        // === 8. 全域狀態同步 (TDL → VENC) ===
+        SyncGlobalFaceData(&stFaceMeta, &stTracker);
         
+        // === 9. 清理本幀資源 ===
         CVI_TDL_Free(&stFaceMeta);
         CVI_TDL_Free(&stTracker);
         CVI_VPSS_ReleaseChnFrame(0, 1, &stFrame);
         
-        // === 處理 Pending 註冊佇列（每幀最多處理一個） ===
-        // 在 TDL Thread 內處理，unbind/rebind 與 GetChnFrame 在同一執行緒，無競爭
-        {
-            PendingTask_t pendingTask;
-            bool hasTask = false;
-            
-            LOCK_PENDING_TASK_MUTEX();
-            if (!g_vecPendingTasks.empty()) {
-                pendingTask = g_vecPendingTasks.front();
-                g_vecPendingTasks.erase(g_vecPendingTasks.begin());
-                hasTask = true;
-            }
-            UNLOCK_PENDING_TASK_MUTEX();
-            
-            if (hasTask) {
-                std::cout << "🔄 [TDL] Processing pending registration: " << pendingTask.name 
-                          << " (ID: " << pendingTask.person_id << ")" << std::endl;
-                
-                std::string hex_template;
-                CVI_S32 enroll_ret = TDLHandler_ProcessImageAndEnroll(
-                    pstHandler, pendingTask.local_photo_path.c_str(), hex_template);
-                
-                CompletedTask_t result;
-                result.person_id = pendingTask.person_id;
-                result.success = (enroll_ret == CVI_SUCCESS);
-                result.template_hex = hex_template;
-                
-                LOCK_COMPLETED_TASK_MUTEX();
-                g_vecCompletedTasks.push_back(result);
-                UNLOCK_COMPLETED_TASK_MUTEX();
-                
-                if (result.success) {
-                    std::cout << "✅ [TDL] BioHash generated for " << pendingTask.name 
-                              << " (" << hex_template.size() / 2 << " bytes)" << std::endl;
-                } else {
-                    std::cerr << "❌ [TDL] Failed to process image for " << pendingTask.name << std::endl;
-                }
-                
-                // 清理下載的臨時照片
-                std::remove(pendingTask.local_photo_path.c_str());
-            }
-        }
+        // === 10. 處理 Pending 註冊佇列 ===
+        ProcessPendingRegistration(pstHandler);
     }
-    
     
     std::cout << "Exit TDL thread" << std::endl;
     pthread_exit(nullptr);
