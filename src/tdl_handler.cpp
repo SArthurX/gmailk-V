@@ -29,7 +29,10 @@ CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath,
     }
     
     std::memset(pstHandler, 0, sizeof(TDLHandler_t));
-    pthread_mutex_init(&pstHandler->tdlMutex, nullptr);
+    if (pthread_mutex_init(&pstHandler->tdlMutex, nullptr) != 0) {
+        std::cerr << "Failed to initialize TDL mutex" << std::endl;
+        return CVI_FAILURE;
+    }
     pstHandler->modelPath = modelPath;
     pstHandler->arcfaceCvimodelPath = arcfaceCvimodel;
     pstHandler->buttonHandler = nullptr;
@@ -42,15 +45,14 @@ CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath,
     CVI_S32 s32Ret = CVI_TDL_CreateHandle(&pstHandler->tdlHandle);
     if (s32Ret != CVI_SUCCESS) {
         std::cerr << "Failed to create TDL handle, ret=0x" << std::hex << s32Ret << std::endl;
-        return s32Ret;
+        goto FAIL;
     }
     
     // Set VBPool for TDL
     s32Ret = CVI_TDL_SetVBPool(pstHandler->tdlHandle, 0, 2);
     if (s32Ret != CVI_SUCCESS) {
         std::cerr << "Failed to set VBPool, ret=0x" << std::hex << s32Ret << std::endl;
-        CVI_TDL_DestroyHandle(pstHandler->tdlHandle);
-        return s32Ret;
+        goto FAIL;
     }
     
     // Set VPSS timeout
@@ -60,26 +62,21 @@ CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath,
     s32Ret = CVI_TDL_Service_CreateHandle(&pstHandler->serviceHandle, pstHandler->tdlHandle);
     if (s32Ret != CVI_SUCCESS) {
         std::cerr << "Failed to create service handle, ret=0x" << std::hex << s32Ret << std::endl;
-        CVI_TDL_DestroyHandle(pstHandler->tdlHandle);
-        return s32Ret;
+        goto FAIL;
     }
 
     // Open face detection model
     s32Ret = CVI_TDL_OpenModel(pstHandler->tdlHandle, CVI_TDL_SUPPORTED_MODEL_SCRFDFACE, modelPath);
     if (s32Ret != CVI_SUCCESS) {
         std::cerr << "Failed to open model, ret=0x" << std::hex << s32Ret << std::endl;
-        CVI_TDL_Service_DestroyHandle(pstHandler->serviceHandle);
-        CVI_TDL_DestroyHandle(pstHandler->tdlHandle);
-        return s32Ret;
+        goto FAIL;
     }
     
     // Initialize DeepSORT tracker
     s32Ret = CVI_TDL_DeepSORT_Init(pstHandler->tdlHandle, false);
     if (s32Ret != CVI_SUCCESS) {
         std::cerr << "Failed to initialize DeepSORT, ret=0x" << std::hex << s32Ret << std::endl;
-        CVI_TDL_Service_DestroyHandle(pstHandler->serviceHandle);
-        CVI_TDL_DestroyHandle(pstHandler->tdlHandle);
-        return s32Ret;
+        goto FAIL;
     }
     
     // Configure DeepSORT parameters for face tracking
@@ -119,25 +116,43 @@ CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath,
     std::cout << "DeepSORT tracker initialized" << std::endl;
     
     return CVI_SUCCESS;
+
+FAIL:
+    if (pstHandler->featureExtractor) {
+        delete pstHandler->featureExtractor;
+        pstHandler->featureExtractor = nullptr;
+    }
+    if (pstHandler->biohashProcessor) {
+        delete pstHandler->biohashProcessor;
+        pstHandler->biohashProcessor = nullptr;
+    }
+    if (pstHandler->serviceHandle)
+        CVI_TDL_Service_DestroyHandle(pstHandler->serviceHandle);
+    if (pstHandler->tdlHandle)
+        CVI_TDL_DestroyHandle(pstHandler->tdlHandle);
+    pthread_mutex_destroy(&pstHandler->tdlMutex);
+    std::memset(pstHandler, 0, sizeof(TDLHandler_t));
+    return s32Ret;
 }
 
 void TDLHandler_Cleanup(TDLHandler_t *pstHandler) {
-    if (pstHandler) {
-        if (pstHandler->featureExtractor) {
-            delete pstHandler->featureExtractor;
-            pstHandler->featureExtractor = nullptr;
-        }
-        if (pstHandler->biohashProcessor) {
-            delete pstHandler->biohashProcessor;
-            pstHandler->biohashProcessor = nullptr;
-        }
-        if (pstHandler->serviceHandle)
-            CVI_TDL_Service_DestroyHandle(pstHandler->serviceHandle);
-        if (pstHandler->tdlHandle)
-            CVI_TDL_DestroyHandle(pstHandler->tdlHandle);
-        std::memset(pstHandler, 0, sizeof(TDLHandler_t));
+    if (!pstHandler)
+        return;
+
+    if (pstHandler->featureExtractor) {
+        delete pstHandler->featureExtractor;
+        pstHandler->featureExtractor = nullptr;
     }
+    if (pstHandler->biohashProcessor) {
+        delete pstHandler->biohashProcessor;
+        pstHandler->biohashProcessor = nullptr;
+    }
+    if (pstHandler->serviceHandle)
+        CVI_TDL_Service_DestroyHandle(pstHandler->serviceHandle);
+    if (pstHandler->tdlHandle)
+        CVI_TDL_DestroyHandle(pstHandler->tdlHandle);
     pthread_mutex_destroy(&pstHandler->tdlMutex);
+    std::memset(pstHandler, 0, sizeof(TDLHandler_t));
     std::cout << "TDL Handler cleaned up" << std::endl;
 }
 
