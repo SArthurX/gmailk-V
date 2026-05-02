@@ -1,7 +1,7 @@
 # gmailk-V 專案全景狀態文件
 
 > **目的**：讓 AI 協作夥伴在下一次對話中快速進入狀況。
-> **最後更新**：2026-03-30
+> **最後更新**：2026-04-30 (valid_date 簡化更新)
 
 ---
 
@@ -52,15 +52,17 @@ gmailk-V/
 │   │   └── oled_helper.hpp        # OLED 更新邏輯
 │   ├── 3rdparty/
 │   │   ├── bch/            # BCH 糾錯碼庫 (bch_codec.c/h)
-│   │   └── json/           # nlohmann/json 單頭檔
+│   │   ├── json/           # nlohmann/json 單頭檔
+│   │   └── httplib/        # cpp-httplib (header-only HTTP client)
 │   └── drivers/
 │       └── ssd1306/        # SSD1306 OLED I2C 驅動
 │
-├── include/                # 標頭檔 (12 個 .h)
+├── include/                # 標頭檔 (13 個 .h)
 │   ├── shared_data.h, system_init.h, tdl_handler.h
 │   ├── venc_handler.h, button_handler.h, oled_ctrl.h
 │   ├── biohash_processor.h, face_database.h
 │   ├── face_feature_extractor.h, draw_utils.h
+│   ├── remote_database.h       # RPi HTTP client
 │   ├── cviruntime.h, cvitpu_debug.h
 │   ├── system/             # CVITEK 系統標頭
 │   ├── tdl/                # CVITEK TDL SDK 標頭
@@ -173,14 +175,23 @@ graph TB
 | `BCH_M` | 9 | GF(2^9), 碼字長度 n=511 |
 | `BCH_T` | 25 | 糾錯能力：可糾正 25 bit 錯誤 (~19.5% 容錯率) |
 
-**註冊**：`feature` → 隨機投影(seed=YYYYMMDDHH) → 二值化(中位數閾值) → 128 可靠位元選擇 → BCH 編碼 → 儲存 `{indices, codeword}`
+**註冊**：`feature` → 隨機投影(seed=YYYYMMDDHHmm) → 二值化(中位數閾值) → 128 可靠位元選擇 → BCH 編碼 → 儲存 `{indices, codeword}`
 
-**驗證**（無狀態種子策略）：
-1. 生成候選種子清單（月→日→時，從當前往回推）
-2. **核心優化**：每個 seed 只做一次投影+二值化，再對所有人比對 → O(Seed) + O(Person)
+**驗證**（萬用零種子策略）：
+1. 生成恆定 5 個候選種子（年/月/日/時/分）
+2. **核心優化**：每個 seed 只做一次投影+二值化，再對所有人比對 → O(5) + O(Person)
 3. BCH 解碼成功 (errors ≤ 25) 即通過
 
-**模板自動過期**：超過候選種子掃描範圍（~1 個月）的舊模板自動失效。
+**valid_date 萬用零格式**（YYYYMMDDHHmm）：
+| 值 | 含義 |
+|---|---|
+| `202604301725` | 僅該分鐘有效 |
+| `202604301700` | 該時整時有效 |
+| `202604300000` | 該日整天有效 |
+| `202604000000` | 該月整月有效 |
+| `202600000000` | 該年整年有效 |
+
+**模板自動過期**：候選種子基於當前時間生成，超過範圍的舊模板自動失效。
 
 ### 4.4 資料庫 (face_database.cpp)
 
@@ -263,15 +274,33 @@ vlc rtsp://<device-ip>:554/h264
 
 ### 已實現 ✅
 - BioHash + BCH 可撤銷生物辨識
-- 無狀態時間種子（不儲存 seed）
-- O(Seed) + O(Person) 批量驗證優化
+- 萬用零時間種子（YYYYMMDDHHmm，不儲存 seed）
+- O(5) + O(Person) 批量驗證優化（恆定 5 個候選種子）
 - DeepSORT 人臉追蹤
 - 自動中心鎖定 (3 秒)
 - OLED 同步顯示
 - GPIO 按鈕操作 (短按辨識/長按註冊)
+- **RPi 遠端模板儲存** (Phase 1 + Phase 2)
+  - RPi FastAPI HTTP Server + SQLite + Web UI
+  - CV181X HTTP client (cpp-httplib, `--rpi` 參數)
+  - 遠端優先 + 本地 fallback
+  - 30秒 TTL 快取機制
+  - 任務佇列架構處理 pending 註冊（背景執行緒網路 I/O + TDL Thread 影像處理）
+  - 使用 `CVI_TDL_ReadImage` + `imgprocess_t` API（不依賴 VPSS 綁定狀態）
+  - `extractFeature` 格式感知：自動處理 NV21（攝影機）和 RGB_888_PLANAR（照片）
+  - RPi `GET /api/pending` 輕量端點
+
+### 設計中 📐
+- **面部衍生金鑰 (Face-Derived Key) + Fuzzy Commitment**：
+  - 將現有 Systematic BCH（碼字含明文）改造為 Fuzzy Commitment 方案
+  - 使用 XOR sketch 隱藏金鑰：`δ = 人臉位元 ⊕ BCH(隨機金鑰)`，金鑰不以任何形式明文存在
+  - 驗證成功時 BCH 糾錯恢復隨機金鑰 → AES 解密附帶的加密酬載（姓名、年齡、權限等）
+  - 只有正確的臉才能恢復金鑰、解鎖資訊
+  - 模板格式 v2 向下兼容 v1
+  - 詳見 `docs/FACE_DERIVED_KEY_CONCEPT.md`
 
 ### 未實現 / 可改進 🔧
-- **滑動視窗續期**：常客自動延期模板（concept doc 已設計）
+- **滑動視窗續期**：常客自動延期模板（concept doc 已設計）          
 - **設備密鑰混淆**：`Seed = Hash(Time + DEVICE_SECRET_KEY)` 防時間偽造
 - **活體檢測**：防照片攻擊
 - **多核並行**：候選種子投影運算在雙核間分工
@@ -291,3 +320,7 @@ vlc rtsp://<device-ip>:554/h264
 6. **按鈕處理**：`src/helpers/btn_helpers.hpp`（短按重新辨識、長按註冊）
 7. **自動鎖定**：`src/helpers/auto_lock_helper.hpp`
 8. **設計文件**：`bioh-bch/time_based_biohash_concept.md` 和 `bioh-bch/process_explanation.md`
+9. **RPi 架構**：`docs/RPI_ARCHITECTURE.md`（遠端模板儲存設計與進度）
+10. **面部衍生金鑰**：`docs/FACE_DERIVED_KEY_CONCEPT.md`（加密酬載概念設計）
+11. **RPi Server 程式碼**：`gmailk-VVeb/py/main.py` + `gmailk-VVeb/index.html`
+12. **遠端資料庫**：`src/remote_database.cpp` + `include/remote_database.h`（CV181X HTTP client）

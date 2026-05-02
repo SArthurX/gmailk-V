@@ -1,0 +1,62 @@
+# Walkthrough: TDL Handler 重構
+
+## 概述
+
+將 [TDLHandler_ThreadRoutine](file:///home/lilin/sx/du/gmailk-V/src/tdl_handler.cpp#310-621) 從 ~310 行混合邏輯重構為 ~80 行的高層級編排迴圈，提取 3 個新的 inline helper 函式。
+
+## 變更清單
+
+| 檔案 | 操作 | 說明 |
+|------|------|------|
+| [feature_verify_helper.hpp](file:///home/lilin/sx/du/gmailk-V/src/helpers/feature_verify_helper.hpp) | 新增 | [ProcessFeatureAndVerify()](file:///home/lilin/sx/du/gmailk-V/src/helpers/feature_verify_helper.hpp#85-164) + [VerifyAgainstDatabase()](file:///home/lilin/sx/du/gmailk-V/src/helpers/feature_verify_helper.hpp#16-84) |
+| [pending_task_helper.hpp](file:///home/lilin/sx/du/gmailk-V/src/helpers/pending_task_helper.hpp) | 新增 | [ProcessPendingRegistration()](file:///home/lilin/sx/du/gmailk-V/src/helpers/pending_task_helper.hpp#13-57) |
+| [tdl_handler.cpp](file:///home/lilin/sx/du/gmailk-V/src/tdl_handler.cpp) | 修改 | 主迴圈簡化 + [SyncGlobalFaceData()](file:///home/lilin/sx/du/gmailk-V/src/tdl_handler.cpp#311-325) + 移除舊 debug 註解 |
+
+## 重構前後對比
+
+**Before** — 所有邏輯 inline 在一個函式中：
+```
+TDLHandler_ThreadRoutine()        ~310 lines
+├── 幀獲取                         L326-350
+├── 人臉偵測                       L351-366
+├── DeepSORT 追蹤                  L368-374
+├── 自動鎖定 (helper)              L376-379
+├── 按鈕處理 (helper)              L381-385
+├── 特徵提取 + BioHash 驗證 ⚠️     L389-514  (~120 行 inline)
+├── 已註解的 debug 輸出             L522-549  (~25 行)
+├── OLED 更新 (helper)             L553-554
+├── 全域狀態同步 ⚠️                L557-567  (~10 行 inline)
+├── 清理                           L569-571
+└── Pending 註冊處理 ⚠️            L573-614  (~40 行 inline)
+```
+
+**After** — 每步都是有意義的函式呼叫：
+```
+TDLHandler_ThreadRoutine()        ~80 lines
+├── 1. 幀獲取
+├── 2. 人臉偵測
+├── 3. DeepSORT 追蹤
+├── 4. ProcessAutoLock()
+├── 5. ButtonHandler_Inputs()
+├── 6. ProcessFeatureAndVerify()   ← 新 helper
+├── 7. FPS + UpdateOLEDDisplay()
+├── 8. SyncGlobalFaceData()        ← 新 inline
+├── 9. 清理
+└── 10. ProcessPendingRegistration() ← 新 helper
+```
+
+## 驗證結果
+
+```
+✅ ./build.sh 交叉編譯成功
+   Executable: build/main (584K)
+   Type: ELF 64-bit LSB, RISC-V, dynamically linked
+   No new warnings (僅保留既有的 -Wwrite-strings)
+```
+
+## Phase 3 準備
+
+重構後的架構更容易擴展 Fuzzy Commitment：
+- [VerifyAgainstDatabase()](file:///home/lilin/sx/du/gmailk-V/src/helpers/feature_verify_helper.hpp#16-84) 可直接改為呼叫 `verify_v2()`
+- [ProcessFeatureAndVerify()](file:///home/lilin/sx/du/gmailk-V/src/helpers/feature_verify_helper.hpp#85-164) 可擴展解密酬載邏輯
+- 每個 helper 獨立修改不影響主迴圈

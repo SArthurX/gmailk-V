@@ -6,6 +6,7 @@
 #include "oled_ctrl.h"
 #include "face_database.h"
 #include "biohash_processor.h"
+#include "remote_database.h"
 extern "C" {
 #include <cvi_comm.h>
 }
@@ -16,6 +17,7 @@ class FaceFeatureExtractor;
 typedef struct {
     cvitdl_handle_t tdlHandle;
     cvitdl_service_handle_t serviceHandle;
+    pthread_mutex_t tdlMutex;
     const char *modelPath;
     const char *arcfaceCvimodelPath;  // ArcFace .cvimodel 路徑（TPU）
     ButtonHandler_t *buttonHandler;
@@ -23,6 +25,7 @@ typedef struct {
     OLEDHandler_t *oledHandler;
     FaceDatabase_t *faceDatabase;  // 人臉資料庫
     BioHashProcessor *biohashProcessor;  // BioHash 處理器
+    RemoteDatabase_t *remoteDatabase;  // RPi 遠端資料庫 (HTTP)
 } TDLHandler_t;
 
 CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath,
@@ -43,6 +46,11 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
 CVI_S32 TDLHandler_CapturePhoto(VIDEO_FRAME_INFO_S *pstFrame, const char *filepath);
 
 void *TDLHandler_ThreadRoutine(void *pHandle);
+void *TDLHandler_RemoteDBThreadRoutine(void *pHandle);
+
+CVI_S32 TDLHandler_ProcessImageAndEnroll(TDLHandler_t *pstHandler, const char *imgPath,
+                                         std::string &outTemplateHex,
+                                         const std::string &valid_date = "");
 
 
 static inline void TDLHandler_SetButtonHandler(TDLHandler_t *pstHandler, ButtonHandler_t *buttonHandler) {
@@ -63,6 +71,11 @@ static inline void TDLHandler_SetFaceDatabase(TDLHandler_t *pstHandler, FaceData
 static inline void TDLHandler_SetBioHashProcessor(TDLHandler_t *pstHandler, BioHashProcessor *processor) {
     if (pstHandler)
         pstHandler->biohashProcessor = processor;
+}
+
+static inline void TDLHandler_SetRemoteDatabase(TDLHandler_t *pstHandler, RemoteDatabase_t *remoteDB) {
+    if (pstHandler)
+        pstHandler->remoteDatabase = remoteDB;
 }
 
 // static inline float CalculateDistanceToCenter(const cvtdl_bbox_t& bbox, uint32_t frameW, uint32_t frameH) {

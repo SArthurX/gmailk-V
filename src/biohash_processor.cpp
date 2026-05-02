@@ -259,12 +259,46 @@ BioHashProcessor::~BioHashProcessor() {}
 uint64_t BioHashProcessor::get_datetime_seed() {
     time_t now = time(nullptr);
     struct tm* t = localtime(&now);
-    // 使用小時精度 (YYYYMMDDHH)，與驗證候選種子範圍匹配
-    uint64_t seed = (uint64_t)(t->tm_year + 1900) * 1000000ULL
-                  + (uint64_t)(t->tm_mon + 1)     * 10000ULL
-                  + (uint64_t)(t->tm_mday)         * 100ULL
-                  + (uint64_t)(t->tm_hour);
+    // 日級精度 (YYYYMMDD0000)，萬用零代表整天有效
+    uint64_t seed = (uint64_t)(t->tm_year + 1900) * 100000000ULL
+                  + (uint64_t)(t->tm_mon + 1)     * 1000000ULL
+                  + (uint64_t)(t->tm_mday)         * 10000ULL;
+    // HH 和 mm 為 0，代表整天有效
     return seed;
+}
+
+uint64_t BioHashProcessor::parse_valid_date(const std::string& valid_date) {
+    // 必須是 12 位數字 (YYYYMMDDHHmm)
+    if (valid_date.size() != 12)
+        return 0;
+    
+    for (char c : valid_date) {
+        if (c < '0' || c > '9') return 0;
+    }
+    
+    int year  = std::stoi(valid_date.substr(0, 4));
+    int month = std::stoi(valid_date.substr(4, 2));
+    int day   = std::stoi(valid_date.substr(6, 2));
+    int hour  = std::stoi(valid_date.substr(8, 2));
+    int min   = std::stoi(valid_date.substr(10, 2));
+    
+    // 基本驗證（允許 0 代表萬用）
+    if (year < 2020) return 0;
+    if (month > 12) return 0;
+    if (day > 31) return 0;
+    if (hour > 23) return 0;
+    if (min > 59) return 0;
+    
+    // 層級一致性：如果月=0，則日/時/分也必須為 0
+    if (month == 0 && (day != 0 || hour != 0 || min != 0)) return 0;
+    if (day == 0 && (hour != 0 || min != 0)) return 0;
+    if (hour == 0 && min != 0) return 0;
+    
+    return (uint64_t)year  * 100000000ULL
+         + (uint64_t)month * 1000000ULL
+         + (uint64_t)day   * 10000ULL
+         + (uint64_t)hour  * 100ULL
+         + (uint64_t)min;
 }
 
 std::vector<uint64_t> BioHashProcessor::generate_candidate_seeds() {
@@ -274,23 +308,18 @@ std::vector<uint64_t> BioHashProcessor::generate_candidate_seeds() {
     struct tm t_now;
     localtime_r(&now, &t_now);
     
-    int year = t_now.tm_year + 1900;
-    int month = t_now.tm_mon + 1;
-    int day = t_now.tm_mday;
-    int hour = t_now.tm_hour;
+    uint64_t year  = t_now.tm_year + 1900;
+    uint64_t month = t_now.tm_mon + 1;
+    uint64_t day   = t_now.tm_mday;
+    uint64_t hour  = t_now.tm_hour;
+    uint64_t min   = t_now.tm_min;
     
-    // 層級 1: 月 (YYYYMM) - 當月 1 個
-    seeds.push_back((uint64_t)year * 100 + month);
-    
-    // 層級 2: 日 (YYYYMMDD) - 從今天往回推到月初
-    for (int d = day; d >= 1; d--) {
-        seeds.push_back((uint64_t)year * 10000 + month * 100 + d);
-    }
-    
-    // 層級 3: 時 (YYYYMMDDHH) - 今天的每個小時（從當前往回）
-    for (int h = hour; h >= 0; h--) {
-        seeds.push_back((uint64_t)year * 1000000 + month * 10000 + day * 100 + h);
-    }
+    // 恆定 5 個候選種子（從粗到細）
+    seeds.push_back(year * 100000000ULL);                                                     // YYYY00000000 (整年)
+    seeds.push_back(year * 100000000ULL + month * 1000000ULL);                                // YYYYMM000000 (整月)
+    seeds.push_back(year * 100000000ULL + month * 1000000ULL + day * 10000ULL);                // YYYYMMDD0000 (整天)
+    seeds.push_back(year * 100000000ULL + month * 1000000ULL + day * 10000ULL + hour * 100ULL); // YYYYMMDDHHmm mm=00 (整時)
+    seeds.push_back(year * 100000000ULL + month * 1000000ULL + day * 10000ULL + hour * 100ULL + min); // YYYYMMDDHHmm (精確到分)
     
     return seeds;
 }

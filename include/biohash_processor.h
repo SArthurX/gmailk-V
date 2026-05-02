@@ -54,22 +54,37 @@ public:
     ~BioHashProcessor();
     
     /**
-     * @brief 生成當前時間種子 (YYYYMMDDHHmmss 格式的整數)
-     * 例如: 20260311163800
+     * @brief 生成當前日期種子 (YYYYMMDD0000 格式)
+     * 例如: 202604300000 (代表整天有效)
      */
     static uint64_t get_datetime_seed();
     
     /**
-     * @brief 生成候選種子列表
+     * @brief 解析 valid_date 字串為種子值
      * 
-     * 從當前時間往回遞減，按層級生成候選種子：
-     * - 月級: YYYYMM (1個)
-     * - 日級: YYYYMMDD (最多31個)
-     * - 時級: YYYYMMDDHH (最多24個)
+     * 支援萬用零位：
+     *   "202604301725" → 202604301725 (精確到分鐘)
+     *   "202604301700" → 202604301700 (整時有效)
+     *   "202604300000" → 202604300000 (整天有效)
+     *   "202604000000" → 202604000000 (整月有效)
+     *   "202600000000" → 202600000000 (整年有效)
      * 
-     * 驗證時從粗粒度開始嘗試，以提高效能。
+     * @param valid_date 12 位數字字串 (YYYYMMDDHHmm)
+     * @return 種子值，若格式無效則返回 0
+     */
+    static uint64_t parse_valid_date(const std::string& valid_date);
+    
+    /**
+     * @brief 生成候選種子列表（恆定 5 個）
      * 
-     * @return 候選種子列表（月→日→時順序）
+     * 基於當前時間生成 5 個層級的候選種子：
+     * - 年級: YYYY00000000
+     * - 月級: YYYYMM000000
+     * - 日級: YYYYMMDD0000
+     * - 時級: YYYYMMDDHHmm 的 mm=00
+     * - 分級: YYYYMMDDHHmm (精確到當前分鐘)
+     * 
+     * @return 候選種子列表（5 個，從粗到細）
      */
     static std::vector<uint64_t> generate_candidate_seeds();
     
