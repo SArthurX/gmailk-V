@@ -1,128 +1,62 @@
-# Pending 註冊流程 — 完整走查
+# Walkthrough: TDL Handler 重構
 
-## 最終運作流程
+## 概述
 
-```mermaid
-sequenceDiagram
-    participant User as 使用者
-    participant RPi as RPi Web UI
-    participant BG as Background Thread<br/>(純網路 I/O)
-    participant Q as 共享佇列<br/>(mutex)
-    participant TDL as TDL Thread<br/>(VPSS/TPU Owner)
+將 [TDLHandler_ThreadRoutine](file:///home/lilin/sx/du/gmailk-V/src/tdl_handler.cpp#310-621) 從 ~310 行混合邏輯重構為 ~80 行的高層級編排迴圈，提取 3 個新的 inline helper 函式。
 
-    User->>RPi: 上傳照片 + 姓名
-    RPi->>RPi: 存入 SQLite (status=pending)
+## 變更清單
 
-    BG->>RPi: GET /api/pending
-    RPi-->>BG: [{id:18, name:"a", photo_path:"..."}]
-    BG->>RPi: GET /uploads/{photo}
-    RPi-->>BG: JPEG binary (100KB)
-    BG->>Q: push PendingTask
+| 檔案 | 操作 | 說明 |
+|------|------|------|
+| [feature_verify_helper.hpp](file:///home/lilin/sx/du/gmailk-V/src/helpers/feature_verify_helper.hpp) | 新增 | [ProcessFeatureAndVerify()](file:///home/lilin/sx/du/gmailk-V/src/helpers/feature_verify_helper.hpp#85-164) + [VerifyAgainstDatabase()](file:///home/lilin/sx/du/gmailk-V/src/helpers/feature_verify_helper.hpp#16-84) |
+| [pending_task_helper.hpp](file:///home/lilin/sx/du/gmailk-V/src/helpers/pending_task_helper.hpp) | 新增 | [ProcessPendingRegistration()](file:///home/lilin/sx/du/gmailk-V/src/helpers/pending_task_helper.hpp#13-57) |
+| [tdl_handler.cpp](file:///home/lilin/sx/du/gmailk-V/src/tdl_handler.cpp) | 修改 | 主迴圈簡化 + [SyncGlobalFaceData()](file:///home/lilin/sx/du/gmailk-V/src/tdl_handler.cpp#311-325) + 移除舊 debug 註解 |
 
-    TDL->>Q: pop PendingTask
-    Note over TDL: imgprocess_t → ReadImage(RGB_888_PLANAR)
-    Note over TDL: UnBind VI → FaceDetection → ReBind VI
-    Note over TDL: extractFeature → BioHash → template_hex
-    TDL->>Q: push CompletedTask
+## 重構前後對比
 
-    BG->>Q: pop CompletedTask
-    BG->>RPi: POST /api/persons/18/complete
-    RPi->>RPi: status=completed ✅
+**Before** — 所有邏輯 inline 在一個函式中：
+```
+TDLHandler_ThreadRoutine()        ~310 lines
+├── 幀獲取                         L326-350
+├── 人臉偵測                       L351-366
+├── DeepSORT 追蹤                  L368-374
+├── 自動鎖定 (helper)              L376-379
+├── 按鈕處理 (helper)              L381-385
+├── 特徵提取 + BioHash 驗證 ⚠️     L389-514  (~120 行 inline)
+├── 已註解的 debug 輸出             L522-549  (~25 行)
+├── OLED 更新 (helper)             L553-554
+├── 全域狀態同步 ⚠️                L557-567  (~10 行 inline)
+├── 清理                           L569-571
+└── Pending 註冊處理 ⚠️            L573-614  (~40 行 inline)
 ```
 
----
-
-## 修改檔案總覽
-
-| 檔案 | 變更 |
-|------|------|
-| [shared_data.h](file:///home/lilin/sx/du/gmailk-V/include/shared_data.h) | 新增 [PendingTask_t](file:///home/lilin/sx/du/gmailk-V/include/shared_data.h#48-53), [CompletedTask_t](file:///home/lilin/sx/du/gmailk-V/include/shared_data.h#57-62) + mutex |
-| [shared_data.cpp](file:///home/lilin/sx/du/gmailk-V/src/shared_data.cpp) | 初始化/清理佇列 |
-| [cvi_tdl_media.h](file:///home/lilin/sx/du/gmailk-V/include/tdl/cvi_tdl_media.h) | 使用者補齊的官方 API 標頭檔 |
-| [tdl_handler.cpp](file:///home/lilin/sx/du/gmailk-V/src/tdl_handler.cpp) | 核心：佇列架構 + 圖片處理 |
-| [remote_database.cpp](file:///home/lilin/sx/du/gmailk-V/src/remote_database.cpp) | 改用 `/api/pending` + 路徑防呆 |
-| [main.py](file:///home/lilin/sx/du/gmailk-V/gmailk-VVeb/py/main.py) | 新增 `GET /api/pending` |
-| [RPI_ARCHITECTURE.md](file:///home/lilin/sx/du/gmailk-V/docs/RPI_ARCHITECTURE.md) | Phase 2 完成 |
-| [PROJECT_STATUS.md](file:///home/lilin/sx/du/gmailk-V/docs/PROJECT_STATUS.md) | 更新狀態 |
-
----
-
-## 設計決策與思維過程
-
-### 1. 任務佇列架構（解決執行緒競爭）
-
-**問題**：原始設計讓背景執行緒直接呼叫 [ProcessImageAndEnroll](file:///home/lilin/sx/du/gmailk-V/src/tdl_handler.cpp#721-800)，其中的 VI UnBind/ReBind 與 TDL Thread 的 `GetChnFrame` 存在嚴重競爭條件。
-
-**解法**：將職責分離為兩個佇列：
-
+**After** — 每步都是有意義的函式呼叫：
 ```
-Background Thread          TDL Thread
-    │                          │
-    ├─ GET /api/pending       ├─ GetChnFrame (即時偵測)
-    ├─ Download photo          │
-    ├─ push PendingTask ──────►├─ pop PendingTask
-    │                          ├─ ProcessImageAndEnroll
-    │◄──── CompletedTask ◄────├─ push CompletedTask
-    ├─ POST /complete          │
-    │                          │
+TDLHandler_ThreadRoutine()        ~80 lines
+├── 1. 幀獲取
+├── 2. 人臉偵測
+├── 3. DeepSORT 追蹤
+├── 4. ProcessAutoLock()
+├── 5. ButtonHandler_Inputs()
+├── 6. ProcessFeatureAndVerify()   ← 新 helper
+├── 7. FPS + UpdateOLEDDisplay()
+├── 8. SyncGlobalFaceData()        ← 新 inline
+├── 9. 清理
+└── 10. ProcessPendingRegistration() ← 新 helper
 ```
-
-**為什麼安全**：UnBind/ReBind 和 GetChnFrame 在**同一個執行緒**內依序執行，天然互斥。
-
----
-
-### 2. VPSS 問題的除錯歷程
-
-CV181X 的 VPSS 硬體限制是整個實作最大的挑戰，經歷了 4 輪除錯：
-
-#### Round 1: `0xc0010108` (CVI_TDL_ERR_VPSS_SEND_FRAME)
-- **原因**：即使移到 TDL Thread，VPSS 管線內仍有殘留 VI 幀
-- **嘗試**：加 `CVI_VPSS_DisableChn` 排空管線
-- **結果**：❌ VENC Thread 也在讀 CHN0，DisableChn 導致它的 `GetChnFrame` 返回 `VPSS_NOTREADY` 而崩潰
-
-#### Round 2: 移除 DisableChn，只用 UnBind + sleep
-- **結果**：❌ 不再崩潰，但 `StbReadImage` 返回 SUCCESS 卻 frame = 0x0
-
-#### Round 3: 分析 `StbReadImage` 0x0 問題
-- **發現**：`VIDEO_FRAME_INFO_S` 堆疊變數未清零 → `memset` 後 frame 從垃圾值變為正確的 `0x0`
-- **root cause**：`StbReadImage` 內部使用 VPSS `SendFrame` 做 RGB→NV21 轉換，VPSS 綁著 VI 時 SendFrame 被靜默拒絕
-
-#### Round 4: 改用 `CVI_TDL_ReadImage` + `imgprocess_t`（官方範例 API）
-- **原理**：`imgprocess_t` 是獨立的影像處理管線，內部使用 OpenCV 而非 VPSS 硬體
-- **結果**：✅ 圖片讀取完全不經過 VPSS，不依賴 VI 綁定狀態
-
-```diff
-- CVI_TDL_StbReadImage(path, &frame, NV21)     // 經過 VPSS，受 VI 綁定影響
-+ CVI_TDL_ReadImage(img_handle, path, &frame, RGB_888_PLANAR)  // 獨立管線
-```
-
-> [!IMPORTANT]
-> `FaceDetection` 仍需 UnBind，因為它內部透過 VPSS 做模型前處理（縮放+色彩轉換）。
-> 但圖片讀取已脫鉤，大幅降低了 UnBind 影響範圍。
-
----
-
-### 3. RPi `/api/pending` 端點（頻寬優化）
-
-原本用 `GET /api/persons` 回傳所有人（含 completed），裝置端再過濾。
-新增 `GET /api/pending` 只回傳 `{id, name, photo_path}`，資料量從 ~2KB/人降到 ~50 bytes/人。
-
----
-
-### 4. 防呆機制
-
-- **路徑防呆**：[DownloadPhoto](file:///home/lilin/sx/du/gmailk-V/include/remote_database.h#70-78) 自動 strip `uploads/` 前綴，避免 `/uploads/uploads/xxx`
-- **重試防呆**：`attempted_ids` 集合追蹤已處理的 person ID，失敗後不重複下載
-
----
 
 ## 驗證結果
 
 ```
-📸 Image loaded: 640x800 format=2
-👤 Face detected: 1 face(s)
-✅ BioHash template created (302 bytes)
-✅ Uploaded registration for person ID 18
+✅ ./build.sh 交叉編譯成功
+   Executable: build/main (584K)
+   Type: ELF 64-bit LSB, RISC-V, dynamically linked
+   No new warnings (僅保留既有的 -Wwrite-strings)
 ```
 
-RTSP 串流在處理期間短暫中斷（UnBind 100ms），但立即恢復，不影響使用體驗。
+## Phase 3 準備
+
+重構後的架構更容易擴展 Fuzzy Commitment：
+- [VerifyAgainstDatabase()](file:///home/lilin/sx/du/gmailk-V/src/helpers/feature_verify_helper.hpp#16-84) 可直接改為呼叫 `verify_v2()`
+- [ProcessFeatureAndVerify()](file:///home/lilin/sx/du/gmailk-V/src/helpers/feature_verify_helper.hpp#85-164) 可擴展解密酬載邏輯
+- 每個 helper 獨立修改不影響主迴圈

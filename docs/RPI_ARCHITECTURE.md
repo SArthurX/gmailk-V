@@ -1,7 +1,7 @@
 # RPi 遠端模板儲存架構
 
 > **建立日期**：2026-04-07  
-> **狀態**：Phase 2 完成 ✅
+> **狀態**：Phase 2 完成 ✅（valid_date 簡化更新 2026-04-30）
 
 ---
 
@@ -44,7 +44,7 @@ CV181X 📷 ──CDC-NCM──> RPi 🍓 (usb0: 192.168.42.1)
 使用者 (手機 Web UI)                RPi                         CV181X
       │                             │                             │
       ├── 上傳照片 + 資訊 ──────────>│                             │
-      │   + 日期種子範圍             │                             │
+      │   + 有效日期 (YYYYMMDDHHmm)   │                             │
       │                             ├── 儲存照片                   │
       │                             ├── 建立 pending 記錄          │
       │                             │                             │
@@ -101,7 +101,7 @@ CV181X 長按按鈕 → 本地 BioHash → POST /api/persons → 直接存入 (c
 
 ```
 GET    /                              # Web UI (分頁: 註冊 / 管理)
-POST   /api/enroll                    # 註冊: 上傳照片 + 資訊 + 日期種子
+POST   /api/enroll                    # 註冊: 上傳照片 + 資訊 + 有效日期 (YYYYMMDDHHmm)
 GET    /api/persons                   # 列出所有人員 (含 pending + completed)
 GET    /api/persons/{id}              # 取得單一人員
 PUT    /api/persons/{id}              # 更新名稱/描述
@@ -109,7 +109,7 @@ DELETE /api/persons/{id}              # 刪除 (含清理照片)
 POST   /api/persons/{id}/complete     # 裝置回傳: 填入碼字完成註冊
 POST   /api/persons                   # CV181X 裝置端: 直接寫入完成的碼字
 GET    /api/templates                 # CV181X 專用: 只取已完成的碼字
-GET    /api/pending                   # CV181X 專用: 只取 pending 照片資訊（輕量）
+GET    /api/pending                   # CV181X 專用: 只取 pending 照片資訊 + valid_date（輕量）
 GET    /api/status                    # 系統狀態
 GET    /uploads/{filename}            # 取得上傳的照片
 ```
@@ -124,8 +124,7 @@ CREATE TABLE persons (
     name              TEXT NOT NULL,
     description       TEXT DEFAULT '',
     photo_path        TEXT DEFAULT '',         -- 註冊照片檔名
-    seed_start        TEXT DEFAULT '',         -- 日期種子起始 (YYYY-MM-DD)
-    seed_end          TEXT DEFAULT '',         -- 日期種子結束 (YYYY-MM-DD)
+    valid_date        TEXT DEFAULT '',         -- 有效日期 (YYYYMMDDHHmm, 萬用零代表更粗粒度)
     status            TEXT DEFAULT 'pending',  -- pending / completed
     biohash_template  TEXT DEFAULT '',         -- 碼字 hex (裝置處理後填入)
     encrypted_payload TEXT DEFAULT '',         -- 加密酬載 (裝置處理後填入)
@@ -134,7 +133,14 @@ CREATE TABLE persons (
 );
 ```
 
-**重要**：`encrypted_payload` 不可由前端直接寫入。它是裝置端在 BioHash + Fuzzy Commitment 流程中，用人臉衍生金鑰加密使用者資訊後產生的。只有驗證時（正確的臉 + BCH 糾錯恢復金鑰）才能解密。
+**valid_date 格式說明**：
+| 值 | 含義 |
+|---|---|
+| `202604301725` | 僅 2026-04-30 17:25 這一分鐘有效 |
+| `202604301700` | 2026-04-30 17:00~17:59 整時有效 |
+| `202604300000` | 2026-04-30 整天有效 |
+| `202604000000` | 2026-04 整月有效 |
+| `202600000000` | 2026 整年有效 |
 
 ---
 
@@ -157,7 +163,7 @@ CV181X 存取: http://192.168.42.1:3000
 - [x] 建立 FastAPI 專案 (uv + aiosqlite)
 - [x] 實作 CRUD API + 自動建表
 - [x] 新增 `/api/status` 端點
-- [x] 分頁式 Web UI：註冊 (照片上傳 + 資訊 + 日期種子) / 管理 (人員列表)
+- [x] 分頁式 Web UI：註冊 (照片上傳 + 資訊 + 有效日期 YYYYMMDDHHmm) / 管理 (人員列表)
 - [x] 照片上傳 + 靜態存取
 - [x] 註冊/驗證流程分離，移除加密酬載手動輸入
 - [x] 新增 `/api/enroll` + `/api/persons/{id}/complete` + `/api/templates`
