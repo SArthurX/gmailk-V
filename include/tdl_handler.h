@@ -48,7 +48,9 @@ CVI_S32 TDLHandler_CapturePhoto(VIDEO_FRAME_INFO_S *pstFrame, const char *filepa
 void *TDLHandler_ThreadRoutine(void *pHandle);
 void *TDLHandler_RemoteDBThreadRoutine(void *pHandle);
 
-CVI_S32 TDLHandler_ProcessImageAndEnroll(TDLHandler_t *pstHandler, const char *imgPath, std::string &outTemplateHex);
+CVI_S32 TDLHandler_ProcessImageAndEnroll(TDLHandler_t *pstHandler, const char *imgPath,
+                                         std::string &outTemplateHex,
+                                         const std::string &valid_date = "");
 
 
 static inline void TDLHandler_SetButtonHandler(TDLHandler_t *pstHandler, ButtonHandler_t *buttonHandler) {

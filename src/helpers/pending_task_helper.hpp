@@ -29,11 +29,14 @@ static inline void ProcessPendingRegistration(TDLHandler_t *pstHandler) {
         return;
 
     std::cout << "🔄 [TDL] Processing pending registration: " << pendingTask.name
-              << " (ID: " << pendingTask.person_id << ")" << std::endl;
+              << " (ID: " << pendingTask.person_id
+              << ", valid_date: " << (pendingTask.valid_date.empty() ? "none" : pendingTask.valid_date)
+              << ")" << std::endl;
 
     std::string hex_template;
     CVI_S32 enroll_ret = TDLHandler_ProcessImageAndEnroll(
-        pstHandler, pendingTask.local_photo_path.c_str(), hex_template);
+        pstHandler, pendingTask.local_photo_path.c_str(), hex_template,
+        pendingTask.valid_date);
 
     CompletedTask_t result;
     result.person_id = pendingTask.person_id;

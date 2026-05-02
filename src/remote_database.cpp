@@ -252,6 +252,7 @@ int RemoteDatabase_FetchPendingPersons(RemoteDatabase_t* db, std::vector<Pending
             pending.id = item.value("id", 0);
             pending.name = item.value("name", "");
             pending.photo_path = item.value("photo_path", "");
+            pending.valid_date = item.value("valid_date", "");
             
             if (!pending.photo_path.empty()) {
                 pending_list.push_back(pending);

@@ -49,6 +49,7 @@ struct PendingTask_t {
     int person_id;
     std::string name;
     std::string local_photo_path;
+    std::string valid_date;  // "YYYYMMDDHHmm" 有效期（萬用零：MM/DD/HH/mm=00 代表更粗粒度）
 };
 extern std::vector<PendingTask_t> g_vecPendingTasks;
 extern pthread_mutex_t g_PendingTaskMutex;

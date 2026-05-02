@@ -11,6 +11,7 @@ typedef struct {
     int id;
     std::string name;
     std::string photo_path;
+    std::string valid_date;  // "YYYYMMDDHHmm" 有效期
 } PendingPerson_t;
 
 // 遠端資料庫處理器（RPi HTTP Client）

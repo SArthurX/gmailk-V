@@ -495,6 +495,7 @@ void* TDLHandler_RemoteDBThreadRoutine(void* pHandle) {
                         task.person_id = person.id;
                         task.name = person.name;
                         task.local_photo_path = local_path;
+                        task.valid_date = person.valid_date;
 
                         LOCK_PENDING_TASK_MUTEX();
                         g_vecPendingTasks.push_back(task);
@@ -517,10 +518,29 @@ void* TDLHandler_RemoteDBThreadRoutine(void* pHandle) {
     return nullptr;
 }
 
-CVI_S32 TDLHandler_ProcessImageAndEnroll(TDLHandler_t *pstHandler, const char *imgPath, std::string &outTemplateHex) {
+CVI_S32 TDLHandler_ProcessImageAndEnroll(TDLHandler_t *pstHandler, const char *imgPath,
+                                         std::string &outTemplateHex,
+                                         const std::string &valid_date) {
     if (!pstHandler || !pstHandler->featureExtractor || !pstHandler->biohashProcessor || !imgPath) {
         std::cerr << "TDLHandler_ProcessImageAndEnroll: Missing component or image path" << std::endl;
         return CVI_FAILURE;
+    }
+
+    // === 決定 BioHash 種子 ===
+    uint64_t enroll_seed = 0;
+    if (!valid_date.empty()) {
+        enroll_seed = BioHashProcessor::parse_valid_date(valid_date);
+        if (enroll_seed > 0) {
+            std::cout << "📅 Using seed from Web UI: " << valid_date 
+                      << " → seed=" << enroll_seed << std::endl;
+        } else {
+            std::cerr << "⚠️  Invalid valid_date '" << valid_date 
+                      << "', falling back to current time" << std::endl;
+        }
+    }
+    if (enroll_seed == 0) {
+        enroll_seed = BioHashProcessor::get_datetime_seed();
+        std::cout << "📅 Using current time seed: " << enroll_seed << std::endl;
     }
 
     // === 使用官方 CVI_TDL_ReadImage API 讀取圖片 ===
@@ -570,8 +590,7 @@ CVI_S32 TDLHandler_ProcessImageAndEnroll(TDLHandler_t *pstHandler, const char *i
         pthread_mutex_unlock(&pstHandler->tdlMutex);
         
         if (ext_ret == CVI_SUCCESS) {
-            uint64_t seed = BioHashProcessor::get_datetime_seed();
-            BioHashTemplate tmpl = pstHandler->biohashProcessor->enroll(feature, seed);
+            BioHashTemplate tmpl = pstHandler->biohashProcessor->enroll(feature, enroll_seed);
             if (tmpl.is_valid()) {
                 outTemplateHex = tmpl.to_hex();
             } else {
