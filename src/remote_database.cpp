@@ -114,6 +114,7 @@ int RemoteDatabase_FetchTemplates(RemoteDatabase_t* db, std::vector<PersonInfo_t
             person.id = item.value("id", 0);
             person.name = item.value("name", "");
             person.biohash_template_hex = item.value("biohash_template", "");
+            person.encrypted_payload_hex = item.value("encrypted_payload", "");
             person.bch_errors = 0;
 
             if (!person.biohash_template_hex.empty()) {
@@ -253,6 +254,7 @@ int RemoteDatabase_FetchPendingPersons(RemoteDatabase_t* db, std::vector<Pending
             pending.name = item.value("name", "");
             pending.photo_path = item.value("photo_path", "");
             pending.valid_date = item.value("valid_date", "");
+            pending.description = item.value("description", "");
             
             if (!pending.photo_path.empty()) {
                 pending_list.push_back(pending);
@@ -313,7 +315,8 @@ int RemoteDatabase_DownloadPhoto(RemoteDatabase_t* db, const std::string& filena
     return -1;
 }
 
-int RemoteDatabase_CompletePerson(RemoteDatabase_t* db, int id, const std::string& template_hex) {
+int RemoteDatabase_CompletePerson(RemoteDatabase_t* db, int id, const std::string& template_hex,
+                                  const std::string& encrypted_payload_hex) {
     if (!db || !db->initialized || template_hex.empty()) return -1;
 
     try {
@@ -323,8 +326,7 @@ int RemoteDatabase_CompletePerson(RemoteDatabase_t* db, int id, const std::strin
 
         json body;
         body["biohash_template"] = template_hex;
-        
-        // Phase 3 預留: body["encrypted_payload"] = "...";
+        body["encrypted_payload"] = encrypted_payload_hex;
 
         std::string path = "/api/persons/" + std::to_string(id) + "/complete";
         auto res = cli.Post(path.c_str(), body.dump(), "application/json");

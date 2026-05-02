@@ -11,7 +11,8 @@ typedef struct {
     int id;
     std::string name;
     std::string photo_path;
-    std::string valid_date;  // "YYYYMMDDHHmm" 有效期
+    std::string valid_date;    // "YYYYMMDDHHmm" 有效期
+    std::string description;   // 酬載明文來源
 } PendingPerson_t;
 
 // 遠端資料庫處理器（RPi HTTP Client）
@@ -84,7 +85,8 @@ int RemoteDatabase_DownloadPhoto(RemoteDatabase_t* db, const std::string& filena
  * @param template_hex BioHash 模板 (hex 編碼)
  * @return 0 成功，-1 失敗
  */
-int RemoteDatabase_CompletePerson(RemoteDatabase_t* db, int id, const std::string& template_hex);
+int RemoteDatabase_CompletePerson(RemoteDatabase_t* db, int id, const std::string& template_hex,
+                                  const std::string& encrypted_payload_hex = "");
 
 /**
  * @brief 使快取失效，下次驗證時重新抓取

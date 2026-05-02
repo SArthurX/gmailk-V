@@ -3,6 +3,7 @@
 
 #include <string>
 #include <vector>
+#include <cstdint>
 
 class BioHashProcessor;
 
@@ -14,7 +15,8 @@ extern "C" {
 typedef struct {
   int id;
   std::string name;
-  std::string biohash_template_hex;  // BioHash 保護模板 (hex 編碼)
+  std::string biohash_template_hex;   // BioHash 保護模板 (hex 編碼)
+  std::string encrypted_payload_hex;  // 加密酬載 (hex 編碼，可選)
   int bch_errors;                     // 驗證時 BCH 糾正的錯誤數
 } PersonInfo_t;
 
@@ -75,7 +77,8 @@ int FaceDatabase_AddPerson(FaceDatabase_t* database, const char* name,
  */
 int FaceDatabase_Verify(FaceDatabase_t* database, const std::vector<float>& feature,
                         BioHashProcessor& processor,
-                        PersonInfo_t* match_person, int& error_count);
+                        PersonInfo_t* match_person, int& error_count,
+                        std::vector<uint8_t>& recovered_key);
 
 /**
  * @brief 取得資料庫中的所有人員

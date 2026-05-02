@@ -50,7 +50,9 @@ void *TDLHandler_RemoteDBThreadRoutine(void *pHandle);
 
 CVI_S32 TDLHandler_ProcessImageAndEnroll(TDLHandler_t *pstHandler, const char *imgPath,
                                          std::string &outTemplateHex,
-                                         const std::string &valid_date = "");
+                                         const std::string &valid_date = "",
+                                         const std::string &payload_text = "",
+                                         std::string &outEncryptedPayloadHex = *(new std::string()));
 
 
 static inline void TDLHandler_SetButtonHandler(TDLHandler_t *pstHandler, ButtonHandler_t *buttonHandler) {

@@ -1,7 +1,7 @@
 # gmailk-V 專案全景狀態文件
 
 > **目的**：讓 AI 協作夥伴在下一次對話中快速進入狀況。
-> **最後更新**：2026-04-30 (valid_date 簡化更新)
+> **最後更新**：2026-05-02 (Phase 3: Fuzzy Commitment + 加密酬載)
 
 ---
 
@@ -14,12 +14,14 @@
 | 人臉偵測 | SCRFD (CVI TDL SDK, TPU) |
 | 人臉追蹤 | DeepSORT |
 | 人臉辨識 | ArcFace (CVI TPU, 512 維特徵) |
-| 隱私保護 | BioHash + BCH 糾錯碼 (不儲存原始特徵) |
+| 隱私保護 | BioHash + BCH + Fuzzy Commitment (面部衍生金鑰) |
+| 加密酬載 | AES-128-CTR + HMAC-SHA256 (Encrypt-then-MAC) |
 | 視訊串流 | H.264 RTSP (1280×720) |
 | 硬體互動 | GPIO 按鈕、LED、SSD1306 OLED (128×64, I2C) |
 
 > [!IMPORTANT]
-> 辨識系統**不儲存原始人臉特徵**，僅儲存 BioHash 模板（可靠位元索引 + BCH ECC 碼字），具備**可撤銷性**和**隱私保護**特性。
+> 辨識系統**不儲存原始人臉特徵**，僅儲存 Fuzzy Commitment sketch（δ = 人臉位元 ⊕ BCH(隨機金鑰)）+ SHA-256 commitment。
+> 金鑰不以任何形式明文存在，只有正確的人臉才能從 sketch 恢復金鑰，用於解密加密酬載。
 
 ---
 
@@ -290,13 +292,13 @@ vlc rtsp://<device-ip>:554/h264
   - `extractFeature` 格式感知：自動處理 NV21（攝影機）和 RGB_888_PLANAR（照片）
   - RPi `GET /api/pending` 輕量端點
 
-### 設計中 📐
-- **面部衍生金鑰 (Face-Derived Key) + Fuzzy Commitment**：
-  - 將現有 Systematic BCH（碼字含明文）改造為 Fuzzy Commitment 方案
-  - 使用 XOR sketch 隱藏金鑰：`δ = 人臉位元 ⊕ BCH(隨機金鑰)`，金鑰不以任何形式明文存在
-  - 驗證成功時 BCH 糾錯恢復隨機金鑰 → AES 解密附帶的加密酬載（姓名、年齡、權限等）
-  - 只有正確的臉才能恢復金鑰、解鎖資訊
-  - 模板格式 v2 向下兼容 v1
+- **面部衍生金鑰 (Face-Derived Key) + Fuzzy Commitment** (Phase 3)
+  - Fuzzy Commitment 方案：sketch δ = 人臉位元 ⊕ BCH(隨機金鑰K)
+  - SHA-256 commitment 驗證金鑰正確性
+  - AES-128-CTR + HMAC-SHA256 加密酬載（描述資訊）
+  - 驗證時恢復金鑰 → 解密酬載 → RTSP 串流顯示
+  - 加密庫：tiny-AES-c + Brad Conte SHA-256
+  - RPi API 支援 encrypted_payload + description 傳遞
   - 詳見 `docs/FACE_DERIVED_KEY_CONCEPT.md`
 
 ### 未實現 / 可改進 🔧

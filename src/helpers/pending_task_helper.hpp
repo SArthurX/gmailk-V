@@ -34,14 +34,16 @@ static inline void ProcessPendingRegistration(TDLHandler_t *pstHandler) {
               << ")" << std::endl;
 
     std::string hex_template;
+    std::string encrypted_payload_hex;
     CVI_S32 enroll_ret = TDLHandler_ProcessImageAndEnroll(
         pstHandler, pendingTask.local_photo_path.c_str(), hex_template,
-        pendingTask.valid_date);
+        pendingTask.valid_date, pendingTask.description, encrypted_payload_hex);
 
     CompletedTask_t result;
     result.person_id = pendingTask.person_id;
     result.success = (enroll_ret == CVI_SUCCESS);
     result.template_hex = hex_template;
+    result.encrypted_payload_hex = encrypted_payload_hex;
 
     LOCK_COMPLETED_TASK_MUTEX();
     g_vecCompletedTasks.push_back(result);

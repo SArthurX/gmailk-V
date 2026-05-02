@@ -68,12 +68,13 @@ static inline void HandleLongPress(TDLHandler_t *pstHandler) {
                 snprintf(name, sizeof(name), "%s", test_names[person_count % 6]);
                 person_count++;
                 
-                // 生成 BioHash 模板（種子 = 當前 datetime，不存入模板）
+                // 生成 BioHash 模板 (Fuzzy Commitment v2)
                 uint64_t seed = BioHashProcessor::get_datetime_seed();
-                std::cout << "🔐 Generating BioHash template (seed=" << seed << ")" << std::endl;
-                BioHashTemplate tmpl = pstHandler->biohashProcessor->enroll(feature, seed);
+                std::cout << "🔐 Generating BioHash v2 template (seed=" << seed << ")" << std::endl;
+                EnrollResult enrollResult = pstHandler->biohashProcessor->enroll(feature, seed);
+                // 按鈕註冊無酬載 → encrypted_payload 為空
                 
-                if (tmpl.is_valid()) {
+                if (enrollResult.tmpl.is_valid()) {
                     int person_id = -1;
                     bool registered_remote = false;
                     
@@ -82,7 +83,7 @@ static inline void HandleLongPress(TDLHandler_t *pstHandler) {
                         person_id = RemoteDatabase_CreatePerson(
                             pstHandler->remoteDatabase,
                             name,
-                            tmpl.to_hex()
+                            enrollResult.tmpl.to_hex()
                         );
                         if (person_id > 0) {
                             registered_remote = true;
@@ -97,18 +98,18 @@ static inline void HandleLongPress(TDLHandler_t *pstHandler) {
                         person_id = FaceDatabase_AddPerson(
                             pstHandler->faceDatabase,
                             name,
-                            tmpl.to_hex()
+                            enrollResult.tmpl.to_hex()
                         );
                     }
                     
                     if (person_id > 0) {
-                        std::cout << "=== Face Registered (BioHash) ===" << std::endl;
+                        std::cout << "=== Face Registered (BioHash v2) ===" << std::endl;
                         std::cout << "✅ Person added to " 
                                   << (registered_remote ? "RPi" : "local") << " database!" << std::endl;
                         std::cout << "ID: " << person_id << std::endl;
                         std::cout << "Name: " << name << std::endl;
                         std::cout << "Track ID: " << selectedID << std::endl;
-                        std::cout << "Template (hex): " << tmpl.to_hex().substr(0, 40) << "..." << std::endl;
+                        std::cout << "Template (hex): " << enrollResult.tmpl.to_hex().substr(0, 40) << "..." << std::endl;
                         std::cout << "================================" << std::endl;
                     } else
                         std::cerr << "❌ Failed to add person to database" << std::endl;

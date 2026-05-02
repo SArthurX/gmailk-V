@@ -1,175 +1,322 @@
-# Raspberry Pi REST API 人臉資料庫伺服器
+# Phase 3：Fuzzy Commitment + 加密酬載實作計劃
 
-## 概述
+> **目標**：將現有的 Systematic BCH（碼字含明文）改造為 Fuzzy Commitment 方案，並加入 AES 加密酬載功能，使人臉成為唯一能解鎖資訊的「鑰匙」。
 
-將人臉資料庫從 CV181X 本地 JSON 搬移到 **Raspberry Pi** 上的 REST API 伺服器。
+## 現狀摘要
 
-**架構圖**：
-```mermaid
-graph LR
-    subgraph "CV181X (邊緣端)"
-        A[Camera] --> B[SCRFD 偵測]
-        B --> C[DeepSORT 追蹤]
-        C --> D[ArcFace TPU 特徵提取]
-        D --> E[HTTP Client]
-    end
-
-    subgraph "Raspberry Pi (伺服器端)"
-        F[FastAPI REST] --> G[BioHash + BCH]
-        G --> H[SQLite DB]
-        F --> I[Web UI]
-    end
-
-    E -->|"POST /verify {feature_512d}"| F
-    E -->|"POST /enroll {feature, name}"| F
-    F -->|"JSON {match, person_info}"| E
-```
-
-**關鍵設計決策**：BioHash + BCH 處理放在 **Pi 端**，CV181X 只負責送出 512 維特徵。
+| 組件 | 現況 |
+|------|------|
+| `biohash_processor.h/cpp` | v1 格式：`{indices, codeword(data明文+ECC), ecc_len}`，`enroll()`/`verify()`/`verify_multiple()` |
+| `face_database.h/cpp` | `PersonInfo_t` 無 `encrypted_payload` 欄位，`FaceDatabase_Verify` 無法返回 key |
+| `feature_verify_helper.hpp` | `MatchResult` 僅含 `{name, bch_errors, person_id}`，無解密資訊 |
+| `remote_database.cpp` | `CompletePerson` 預留了 `encrypted_payload` 但未傳送 |
+| RPi `main.py` | DB schema 已有 `encrypted_payload` 欄位，API 已接受但未使用 |
+| RPi `index.html` | 無酬載輸入 UI |
+| 加密庫 | 無 SHA-256 / AES 實作 |
 
 ---
 
 ## User Review Required
 
 > [!IMPORTANT]
-> **BioHash 運算放哪裡？**  
-> 建議放在 Pi 端。理由：
-> 1. Pi 的 CPU (Cortex-A72) 比 CV181X 的 RISC-V 在純浮點運算上更快
-> 2. 資料庫和模板都在 Pi 上，避免網路來回傳輸模板
-> 3. CV181X 可以減少記憶體佔用
->
-> **代價**：原始 512 維特徵會經過網路傳輸。若要求特徵也不離開設備，則 BioHash 必須留在 CV181X 端。
+> **加密算法選擇**：建議使用 **tiny-AES-c** (AES-128-CTR) + 手寫 **SHA-256** (minimal ~200行 C)。
+> - tiny-AES-c 是純 C、header-only 可內嵌、支援 AES-128，適合 RISC-V musl 環境
+> - AES-CTR 模式 + HMAC-SHA256 提供 encrypt-then-MAC 認證加密，安全性等同 AES-GCM
+> - 不需要 mbedtls（太重，CV181X 512MB RAM 寶貴）
+> - **替代方案**：若您偏好 AES-GCM，可改用 mbedtls（需額外 link）
+
+> [!IMPORTANT]
+> **v1 向下兼容策略**：v1 模板（舊格式）在驗證時仍可使用，但僅做身份驗證、不支持金鑰解密。
+> 新註冊一律使用 v2 格式。是否需要提供 v1→v2 遷移工具？
 
 > [!WARNING]
-> **網路延遲**：CV181X 與 Pi 之間的 HTTP 來回約 5-20ms (同一 LAN)。  
-> 對即時辨識來說可接受，但需確保網路穩定。
+> **OLED 顯示限制**：128×64 像素的 OLED 只能顯示約 4 行 × 16 字元的文字。
+> 建議 OLED 僅顯示 `✅ Alice` 一行，完整酬載資訊（公司、權限等）在 RTSP 串流上顯示。
 
----
+## Open Questions
 
-## 技術選型
+> [!IMPORTANT]
+> 1. **酬載內容來源**：Web UI 註冊時，使用者輸入的「描述 (description)」欄位是否直接作為酬載明文？還是需要新增獨立的「加密資訊」欄位（JSON 格式）？
+>    - 建議方案：將現有 `description` 欄位改為酬載明文來源，格式為自由文字或 JSON
 
-| 項目 | 選擇 | 理由 |
-|------|------|------|
-| 語言 | **Python 3** | Pi 上開發最方便，生態完整 |
-| Web 框架 | **FastAPI** | 異步高性能、自動 OpenAPI 文檔、型別驗證 |
-| 資料庫 | **SQLite** | 輕量、零配置、Pi 完美支援 |
-| ORM | **直接 SQL** (sqlite3 模組) | 簡單場景不需要 ORM 開銷 |
-| BioHash | **移植 biohash_processor 為 Python** | 用 NumPy 做矩陣運算更快 |
-| BCH | **bchlib** (pip install) | Python BCH 庫 |
-| CV181X HTTP | **libcurl** (C) 或 **cpp-httplib** (header-only) | 嵌入式友好 |
+> [!IMPORTANT]
+> 2. **按鈕直接註冊的酬載**：裝置端長按按鈕註冊時，沒有 Web UI 可以輸入酬載資訊。此流程是否產生空酬載的 v2 模板（僅有 sketch + commitment，無 encrypted_payload）？
 
 ---
 
 ## Proposed Changes
 
-### Pi 伺服器端 (新專案)
+按依賴順序分為 6 個步驟（3a → 3f），每步獨立可編譯驗證。
 
-#### [NEW] `pi-server/main.py` — FastAPI 主程式
+---
 
-```python
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-import sqlite3, numpy as np
+### Step 3a：引入 SHA-256 + AES 加密庫
 
-app = FastAPI(title="gmailk-V Face Database API")
+新增兩個 header-only / 單檔的第三方加密庫到 `src/3rdparty/`。
 
-class EnrollRequest(BaseModel):
-    name: str
-    feature: list[float]  # 512 維
+#### [NEW] [sha256.h](file:///home/lilin/sx/du/gmailk-V/src/3rdparty/crypto/sha256.h) + [sha256.c](file:///home/lilin/sx/du/gmailk-V/src/3rdparty/crypto/sha256.c)
+- 最小化的 SHA-256 實作（~200 行純 C）
+- 提供 `sha256_init()`, `sha256_update()`, `sha256_final()` API
+- 來源：公開領域 minimal SHA-256 實作（如 Brad Conte 的實作）
 
-class VerifyRequest(BaseModel):
-    feature: list[float]  # 512 維
+#### [NEW] [aes.h](file:///home/lilin/sx/du/gmailk-V/src/3rdparty/crypto/aes.h) + [aes.c](file:///home/lilin/sx/du/gmailk-V/src/3rdparty/crypto/aes.c)
+- tiny-AES-c：支持 AES-128-CTR 模式
+- 純 C 實作，無外部依賴，~500 行
+- 來源：[kokke/tiny-AES-c](https://github.com/kokke/tiny-AES-c) (public domain)
 
-class PersonResponse(BaseModel):
-    id: int
-    name: str
-    bch_errors: int
+#### [NEW] [crypto_utils.hpp](file:///home/lilin/sx/du/gmailk-V/src/3rdparty/crypto/crypto_utils.hpp)
+- C++ 封裝：`sha256(vector<uint8_t>) → array<uint8_t, 32>`
+- C++ 封裝：`aes128_ctr_encrypt(key, iv, plaintext) → ciphertext`
+- C++ 封裝：`hmac_sha256(key, data) → array<uint8_t, 32>` (Encrypt-then-MAC)
+- C++ 封裝：`encrypt_payload(key_16B, plaintext) → {iv + ciphertext + hmac}`
+- C++ 封裝：`decrypt_payload(key_16B, blob) → plaintext or error`
+
+#### [MODIFY] [CMakeLists.txt](file:///home/lilin/sx/du/gmailk-V/CMakeLists.txt)
+- 新增 `crypto` 靜態庫 target（sha256.c + aes.c）
+- link 到 main
+
+---
+
+### Step 3b：BioHashTemplate v2 格式 + 序列化
+
+#### [MODIFY] [biohash_processor.h](file:///home/lilin/sx/du/gmailk-V/include/biohash_processor.h)
+
+`BioHashTemplate` 結構改為：
+```cpp
+struct BioHashTemplate {
+    uint8_t version = 1;                        // 1=v1(legacy), 2=v2(fuzzy commitment)
+    std::vector<int> indices;                    // 128 個可靠位元索引 [不變]
+    std::vector<uint8_t> codeword;               // v1: BCH 碼字 (data+ECC)
+    std::vector<uint8_t> sketch;                 // v2: δ = B ⊕ C [取代 codeword]
+    std::array<uint8_t, 32> commitment = {};     // v2: SHA-256(K)
+    int ecc_bytes_len;                           // [不變]
+    std::vector<uint8_t> encrypted_payload;      // v2: AES 密文 [可選]
+
+    std::string to_hex() const;    // 自動選擇 v1/v2 序列化
+    static BioHashTemplate from_hex(const std::string& hex);  // 自動偵測版本
+    bool is_valid() const;
+    bool is_v2() const { return version == 2; }
+};
 ```
 
-API 端點設計：
+新增 v2 API：
+```cpp
+struct EnrollResult {
+    BioHashTemplate tmpl;
+    std::vector<uint8_t> key;   // 128-bit 隨機金鑰
+};
 
-| Method | Endpoint | 功能 | Request Body | Response |
-|--------|----------|------|-------------|----------|
-| `POST` | `/enroll` | 註冊新人 | `{name, feature[512]}` | `{id, name, template_created}` |
-| `POST` | `/verify` | 驗證人臉 | `{feature[512]}` | `{matched, person: {id, name, info}, bch_errors}` |
-| `GET` | `/persons` | 列出所有人 | — | `[{id, name, created_at}]` |
-| `GET` | `/persons/{id}` | 取得個人資訊 | — | `{id, name, info, created_at}` |
-| `DELETE` | `/persons/{id}` | 刪除人員 | — | `{ok}` |
-| `PUT` | `/persons/{id}` | 更新人員資訊 | `{name?, info?}` | `{ok}` |
-| `POST` | `/input-vector` | 手動輸入向量測試 | `{feature[512], name?}` | `{enroll_result 或 verify_result}` |
-| `GET` | `/health` | 健康檢查 | — | `{status: "ok"}` |
+struct VerifyResult {
+    bool matched;
+    int num_errors;
+    std::vector<uint8_t> recovered_key;  // v2: 恢復的金鑰
+};
 
-#### [NEW] `pi-server/biohash.py` — BioHash + BCH Python 實作
-
-- 移植 [biohash_processor.cpp](file:///home/lilin/sx/gmailk-V/src/biohash_processor.cpp) 的邏輯
-- 使用 NumPy 做矩陣投影（比 C++ 逐元素更快）
-- 使用 `bchlib` 做 BCH 編解碼
-
-#### [NEW] `pi-server/database.py` — SQLite 操作
-
-```sql
-CREATE TABLE persons (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    info TEXT DEFAULT '',            -- 額外可顯示的個人資訊
-    biohash_template BLOB NOT NULL,  -- 序列化的 BioHashTemplate
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+EnrollResult enroll_v2(const std::vector<float>& feature, uint64_t seed);
+VerifyResult verify_v2(const std::vector<float>& feature, const BioHashTemplate& tmpl, uint64_t seed);
+int verify_multiple_v2(const std::vector<float>& feature,
+                       const std::vector<BioHashTemplate>& templates,
+                       int& best_errors, uint64_t& matching_seed,
+                       std::vector<uint8_t>& recovered_key);
 ```
 
-#### [NEW] `pi-server/requirements.txt`
+#### [MODIFY] [biohash_processor.cpp](file:///home/lilin/sx/du/gmailk-V/src/biohash_processor.cpp)
 
+**序列化**：
+
+v2 `to_hex()` 格式：
 ```
-fastapi>=0.100
-uvicorn>=0.20
-numpy
-bchlib
-pydantic
+[version: 1B = 0x02]
+[ecc_len: 1B]
+[indices: 256B]          ← 128×2 bytes，與 v1 一致
+[sketch: 16B + eccB]     ← 取代 codeword，大小相同
+[commitment: 32B]        ← SHA-256(K)
+[enc_payload_len: 2B]    ← big-endian，0 = 無酬載
+[encrypted_payload: 變長]
+```
+
+`from_hex()` 自動偵測：
+- 首 byte = `0x02` → v2 解析
+- 首 byte ≠ `0x02` → v1 legacy 解析（與現行一致）
+
+**Enroll v2 核心邏輯**：
+1. 步驟 1-4：與 v1 `enroll()` 完全一致（投影→二值化→可靠位元）
+2. 步驟 5：生成 128-bit 隨機金鑰 K（`/dev/urandom`）
+3. 步驟 6：`C = BCH_encode(K)` — 編碼金鑰而非人臉位元
+4. 步驟 7：`sketch = B_bytes ⊕ C_data || C_ecc`
+5. 步驟 8：`commitment = SHA-256(K)`
+6. 返回 `{tmpl, key}`
+
+**Verify v2 核心邏輯**：
+1. 步驟 1-4：與 v1 一致
+2. 步驟 5：`C'_data = B'_bytes ⊕ sketch_data`
+3. 步驟 6：BCH 解碼 `C'` → 恢復 `K*`
+4. 步驟 7：`SHA-256(K*) == commitment?` → 若通過，返回 `K*`
+
+**`verify_multiple_v2` 批量驗證**：
+- 與現行 `verify_multiple` 結構一致
+- 對每個 seed 做一次投影+二值化，再掃描所有模板
+- v2 模板用 XOR + BCH decode + hash 驗證
+- v1 模板退化為原行為（直接 BCH decode，不返回 key）
+- 混合 v1/v2 模板的資料庫可正常運作
+
+---
+
+### Step 3c：加密酬載 encrypt/decrypt
+
+#### [MODIFY] [biohash_processor.h](file:///home/lilin/sx/du/gmailk-V/include/biohash_processor.h)
+
+新增酬載加解密 API：
+```cpp
+// 加密酬載（enroll 時呼叫）
+static std::vector<uint8_t> encrypt_payload(
+    const std::vector<uint8_t>& key,       // 16B 金鑰
+    const std::string& plaintext);          // JSON 明文
+
+// 解密酬載（verify 時呼叫）
+static std::string decrypt_payload(
+    const std::vector<uint8_t>& key,       // 16B 恢復的金鑰
+    const std::vector<uint8_t>& ciphertext); // 密文 blob
+```
+
+加密格式：`[IV:16B][ciphertext:N][HMAC-SHA256:32B]`
+- IV = random 16 bytes
+- ciphertext = AES-128-CTR(key, IV, plaintext)
+- HMAC = HMAC-SHA256(key, IV || ciphertext)  ← Encrypt-then-MAC
+
+解密流程：
+1. 驗證 HMAC → 防篡改
+2. AES-128-CTR 解密 → 明文
+
+---
+
+### Step 3d：PersonInfo + 資料庫 + 匹配結果適配
+
+#### [MODIFY] [face_database.h](file:///home/lilin/sx/du/gmailk-V/include/face_database.h)
+
+`PersonInfo_t` 新增：
+```cpp
+typedef struct {
+    int id;
+    std::string name;
+    std::string biohash_template_hex;
+    std::string encrypted_payload_hex;   // [新增] 加密酬載 hex
+    int bch_errors;
+} PersonInfo_t;
+```
+
+`FaceDatabase_Verify` 改簽名：
+```cpp
+int FaceDatabase_Verify(FaceDatabase_t* database, const std::vector<float>& feature,
+                        BioHashProcessor& processor,
+                        PersonInfo_t* match_person, int& error_count,
+                        std::vector<uint8_t>& recovered_key);  // [新增] 返回金鑰
+```
+
+#### [MODIFY] [face_database.cpp](file:///home/lilin/sx/du/gmailk-V/src/face_database.cpp)
+- `FaceDatabase_Verify` 改用 `verify_multiple_v2`，取得 `recovered_key`
+- JSON 解析/儲存新增 `encrypted_payload` 欄位
+
+#### [MODIFY] [shared_data.h](file:///home/lilin/sx/du/gmailk-V/include/shared_data.h)
+
+`MatchResult` 新增：
+```cpp
+struct MatchResult {
+    std::string name;
+    int bch_errors;
+    int person_id;
+    std::string decrypted_payload;   // [新增] 解密後的酬載明文
+};
 ```
 
 ---
 
-### CV181X 端修改
+### Step 3e：Enroll / Verify 全鏈路改造
 
-#### [MODIFY] [src/face_database.cpp](file:///home/lilin/sx/gmailk-V/src/face_database.cpp) → 改為 HTTP client
+#### [MODIFY] [btn_helpers.hpp](file:///home/lilin/sx/du/gmailk-V/src/helpers/btn_helpers.hpp)
+- `HandleLongPress` 改呼叫 `enroll_v2()`
+- 取得 `EnrollResult.key`，但按鈕註冊無酬載 → `encrypted_payload` 為空
+- `to_hex()` 自動產生 v2 格式模板
 
-- 移除本地 JSON 讀寫
-- 新增 `FaceDatabase_RemoteVerify()` — POST 特徵到 Pi
-- 新增 `FaceDatabase_RemoteEnroll()` — POST 特徵 + 姓名到 Pi
-- 使用 **cpp-httplib** (header-only, 易交叉編譯)
+#### [MODIFY] [feature_verify_helper.hpp](file:///home/lilin/sx/du/gmailk-V/src/helpers/feature_verify_helper.hpp)
+- `VerifyAgainstDatabase` 接收 `recovered_key` 參數
+- 若 `match_person.encrypted_payload_hex` 非空 → 用 `recovered_key` 解密
+- 解密結果存入 `MatchResult.decrypted_payload`
 
-#### [MODIFY] [src/tdl_handler.cpp](file:///home/lilin/sx/gmailk-V/src/tdl_handler.cpp)
+#### [MODIFY] [pending_task_helper.hpp](file:///home/lilin/sx/du/gmailk-V/src/helpers/pending_task_helper.hpp)
+- 修改 `ProcessPendingRegistration`
+- 使用 `enroll_v2()` 取代 `enroll()`
+- 透過 `PendingTask_t` 傳入酬載明文 → 用 key 加密 → 隨模板一起上傳
 
-- 將 [FaceDatabase_Verify()](file:///home/lilin/sx/gmailk-V/include/face_database.h#67-79) 改為呼叫遠端 API
-- 移除本地 [BioHashProcessor](file:///home/lilin/sx/gmailk-V/include/biohash_processor.h#51-114) 依賴（BioHash 在 Pi 上做）
+#### [MODIFY] [tdl_handler.cpp](file:///home/lilin/sx/du/gmailk-V/src/tdl_handler.cpp)
+- `TDLHandler_ProcessImageAndEnroll` 改用 `enroll_v2()`
+- 新增 `outEncryptedPayload` 參數，回傳加密後酬載
 
-#### [MODIFY] [include/face_database.h](file:///home/lilin/sx/gmailk-V/include/face_database.h)
+#### [MODIFY] [remote_database.cpp](file:///home/lilin/sx/du/gmailk-V/src/remote_database.cpp)
+- `RemoteDatabase_CompletePerson` 新增 `encrypted_payload` 參數
+- `RemoteDatabase_FetchTemplates` 解析 `encrypted_payload` 欄位
 
-- 新增遠端伺服器 URL 配置
-- 結構體加入 `server_url` 欄位
+#### [MODIFY] [remote_database.h](file:///home/lilin/sx/du/gmailk-V/include/remote_database.h)
+- API 簽名更新
 
-#### [NEW] `include/3rdparty/httplib.h`
-
-- cpp-httplib header-only HTTP library
+#### [MODIFY] [shared_data.h](file:///home/lilin/sx/du/gmailk-V/include/shared_data.h)
+- `PendingTask_t` 新增 `description` 欄位（酬載明文來源）
+- `CompletedTask_t` 新增 `encrypted_payload_hex` 欄位
 
 ---
 
-## 「看到人就解鎖資訊」的流程
+### Step 3f：RPi Server + Web UI
+
+#### [MODIFY] [main.py](file:///home/lilin/sx/du/gmailk-V/gmailk-VVeb/py/main.py)
+- `GET /api/pending` 返回增加 `description` 欄位（作為酬載明文源）
+- `GET /api/templates` 確保返回 `encrypted_payload`（已有）
+- `POST /api/persons/{id}/complete` 已接受 `encrypted_payload`（已有）
+- 無需大幅修改
+
+#### [MODIFY] [index.html](file:///home/lilin/sx/du/gmailk-V/gmailk-VVeb/index.html)
+- 註冊表單新增「加密資訊」多行文字輸入框（提示 JSON 格式）
+- 管理頁面顯示 `encrypted_payload` 長度、v2 標示
+- 碼字複製區域包含 `encrypted_payload`
+
+---
+
+## RTSP / OLED 顯示改動
+
+#### [MODIFY] [tdl_handler.cpp](file:///home/lilin/sx/du/gmailk-V/src/tdl_handler.cpp)  TDLHandler_DrawFaceRect
+- 若 `MatchResult.decrypted_payload` 非空，在人臉框上方顯示部分酬載摘要
+- OLED 只顯示 `✅ 姓名`（不變）
+
+---
+
+## 資料流總覽
 
 ```mermaid
 sequenceDiagram
-    participant Cam as CV181X Camera
-    participant TDL as TDL Thread
-    participant Pi as Raspberry Pi
+    participant WebUI as 手機 Web UI
+    participant RPi as RPi FastAPI
+    participant BG as CV181X 背景執行緒
+    participant TDL as CV181X TDL Thread
 
-    Cam->>TDL: 取幀
-    TDL->>TDL: SCRFD 偵測 + DeepSORT 追蹤
-    TDL->>TDL: 自動鎖定 (中心 3 秒)
-    TDL->>TDL: ArcFace 提取 512 維特徵
-    TDL->>Pi: POST /verify {feature}
-    Pi->>Pi: BioHash + BCH 驗證
-    Pi-->>TDL: {matched: true, person: {id: 1, name: "王小明", info: "員工編號 A001"}, bch_errors: 3}
-    TDL->>TDL: 顯示在 RTSP OSD + OLED
+    Note over WebUI,TDL: === 註冊流程 (Enroll) ===
+    WebUI->>RPi: POST /api/enroll (照片+姓名+description+valid_date)
+    RPi->>RPi: 存照片, 建 pending 記錄
+    BG->>RPi: GET /api/pending
+    RPi-->>BG: [{id, name, photo_path, valid_date, description}]
+    BG->>BG: 下載照片到 /tmp
+    BG->>TDL: PendingTask_t (含 description)
+    TDL->>TDL: ArcFace → BioHash → enroll_v2()
+    TDL->>TDL: K = random_key, sketch = B⊕BCH(K), commitment = SHA256(K)
+    TDL->>TDL: encrypted_payload = AES-CTR(K, description)
+    TDL->>BG: CompletedTask_t {template_hex, encrypted_payload_hex}
+    BG->>RPi: POST /api/persons/{id}/complete {biohash_template, encrypted_payload}
+
+    Note over WebUI,TDL: === 驗證流程 (Verify) ===
+    TDL->>RPi: GET /api/templates
+    RPi-->>TDL: [{id, name, biohash_template, encrypted_payload}]
+    TDL->>TDL: ArcFace → BioHash → verify_multiple_v2()
+    TDL->>TDL: C' = B'⊕sketch → BCH decode → K* → SHA256(K*)==commitment?
+    TDL->>TDL: AES-CTR(K*, encrypted_payload) → 解密出 description
+    TDL->>TDL: RTSP 顯示: ✅ Alice | ABC科技
 ```
 
 ---
@@ -177,12 +324,17 @@ sequenceDiagram
 ## Verification Plan
 
 ### Automated Tests
-- Pi 端：`pytest` 單元測試 BioHash Python 實作（與 C++ 版本交叉比對相同 seed 產生的結果）
-- Pi 端：`httpx` 整合測試 — 註冊 → 驗證 → 查詢 → 刪除
+
+1. **交叉編譯測試**：`./build.sh` 確認 RISC-V musl 目標無連結錯誤
+2. **SHA-256 單元測試**：對照 NIST 測試向量（在 host x86 上先跑）
+3. **v1/v2 序列化往返測試**：`from_hex(to_hex(tmpl)) == tmpl`
+4. **加密酬載往返測試**：`decrypt(key, encrypt(key, plaintext)) == plaintext`
+5. **v1 向下兼容**：舊模板 hex 能被 `from_hex` 正確解析為 v1
 
 ### Manual Verification
-1. 在 Pi 上啟動 `uvicorn main:app --host 0.0.0.0 --port 8000`
-2. 用 `curl` 或瀏覽器打開 `http://<pi-ip>:8000/docs` 查看自動生成的 API 文檔
-3. 透過 `/input-vector` 端點手動貼入 512 維向量測試
-4. 在 CV181X 上運行修改後的程式，確認 RTSP 畫面顯示辨識結果
-5. **由使用者確認**：同一 LAN 下的延遲是否可接受
+
+1. 在 CV181X 設備上以 `--rpi` 模式啟動
+2. 透過 Web UI 註冊一個人（含酬載描述）
+3. 確認裝置產生 v2 模板 + encrypted_payload 上傳到 RPi
+4. 攝影機辨識該人 → RTSP 串流顯示解密後的資訊
+5. 非本人站在攝影機前 → 無法解密、顯示 Unknown

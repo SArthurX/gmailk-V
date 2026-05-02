@@ -58,6 +58,9 @@ int FaceDatabase_Load(FaceDatabase_t* database) {
         if (person_json.contains("biohash_template") && person_json["biohash_template"].is_string()) {
           person.biohash_template_hex = person_json["biohash_template"].get<std::string>();
         }
+        if (person_json.contains("encrypted_payload") && person_json["encrypted_payload"].is_string()) {
+          person.encrypted_payload_hex = person_json["encrypted_payload"].get<std::string>();
+        }
         
         person.bch_errors = 0;
         database->persons.push_back(person);
@@ -91,6 +94,7 @@ int FaceDatabase_Save(FaceDatabase_t* database) {
       person_json["id"] = person.id;
       person_json["name"] = person.name;
       person_json["biohash_template"] = person.biohash_template_hex;
+      person_json["encrypted_payload"] = person.encrypted_payload_hex;
       j["persons"].push_back(person_json);
     }
 
@@ -161,7 +165,8 @@ int FaceDatabase_AddPerson(FaceDatabase_t* database, const char* name,
 // 驗證人臉 (BioHash + BCH)
 int FaceDatabase_Verify(FaceDatabase_t* database, const std::vector<float>& feature,
                         BioHashProcessor& processor,
-                        PersonInfo_t* match_person, int& error_count) {
+                        PersonInfo_t* match_person, int& error_count,
+                        std::vector<uint8_t>& recovered_key) {
   if (!database || !database->initialized || !match_person)
     return -1;
 
@@ -171,17 +176,16 @@ int FaceDatabase_Verify(FaceDatabase_t* database, const std::vector<float>& feat
   }
 
   if (database->persons.empty())
-    return -1;  // 資料庫為空
+    return -1;
 
   std::cout << "[BioHash] Verifying against " << database->persons.size() << " persons..." << std::endl;
 
   // 1. 提取所有有效的模板
   std::vector<BioHashTemplate> templates;
-  std::vector<size_t> person_indices; // 記錄 template 對應的 person 索引
   
   for (size_t i = 0; i < database->persons.size(); i++) {
     if (database->persons[i].biohash_template_hex.empty()) {
-      templates.push_back(BioHashTemplate()); // 推入空的以對齊索引
+      templates.push_back(BioHashTemplate());
       continue;
     }
     
@@ -189,20 +193,20 @@ int FaceDatabase_Verify(FaceDatabase_t* database, const std::vector<float>& feat
     if (!tmpl.is_valid()) {
       std::cerr << "  Person [" << database->persons[i].id << "] " 
                 << database->persons[i].name << ": invalid template, skipping" << std::endl;
-      templates.push_back(BioHashTemplate()); // 推入空的以對齊索引
+      templates.push_back(BioHashTemplate());
       continue;
     }
     
     templates.push_back(tmpl);
   }
   
-  // 2. 呼叫高效的批量驗證
+  // 2. 批量驗證 (Fuzzy Commitment)
   int best_errors = 0;
   uint64_t matching_seed = 0;
-  int best_match_template_idx = processor.verify_multiple(feature, templates, best_errors, matching_seed);
+  int best_match_template_idx = processor.verify_multiple(
+      feature, templates, best_errors, matching_seed, recovered_key);
   
   if (best_match_template_idx >= 0) {
-    // 最佳匹配
     int original_person_idx = best_match_template_idx;
     *match_person = database->persons[original_person_idx];
     match_person->bch_errors = best_errors;
@@ -211,10 +215,10 @@ int FaceDatabase_Verify(FaceDatabase_t* database, const std::vector<float>& feat
     std::cout << "  Person [" << match_person->id << "] " 
               << match_person->name << ": ✅ MATCH (errors=" << best_errors 
               << ", seed=" << matching_seed << ")" << std::endl;
-    return 0;  // 找到匹配
+    return 0;
   }
 
-  return -1;  // 沒有找到匹配
+  return -1;
 }
 
 // 取得所有人員

@@ -1,0 +1,188 @@
+# Raspberry Pi REST API 人臉資料庫伺服器
+
+## 概述
+
+將人臉資料庫從 CV181X 本地 JSON 搬移到 **Raspberry Pi** 上的 REST API 伺服器。
+
+**架構圖**：
+```mermaid
+graph LR
+    subgraph "CV181X (邊緣端)"
+        A[Camera] --> B[SCRFD 偵測]
+        B --> C[DeepSORT 追蹤]
+        C --> D[ArcFace TPU 特徵提取]
+        D --> E[HTTP Client]
+    end
+
+    subgraph "Raspberry Pi (伺服器端)"
+        F[FastAPI REST] --> G[BioHash + BCH]
+        G --> H[SQLite DB]
+        F --> I[Web UI]
+    end
+
+    E -->|"POST /verify {feature_512d}"| F
+    E -->|"POST /enroll {feature, name}"| F
+    F -->|"JSON {match, person_info}"| E
+```
+
+**關鍵設計決策**：BioHash + BCH 處理放在 **Pi 端**，CV181X 只負責送出 512 維特徵。
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **BioHash 運算放哪裡？**  
+> 建議放在 Pi 端。理由：
+> 1. Pi 的 CPU (Cortex-A72) 比 CV181X 的 RISC-V 在純浮點運算上更快
+> 2. 資料庫和模板都在 Pi 上，避免網路來回傳輸模板
+> 3. CV181X 可以減少記憶體佔用
+>
+> **代價**：原始 512 維特徵會經過網路傳輸。若要求特徵也不離開設備，則 BioHash 必須留在 CV181X 端。
+
+> [!WARNING]
+> **網路延遲**：CV181X 與 Pi 之間的 HTTP 來回約 5-20ms (同一 LAN)。  
+> 對即時辨識來說可接受，但需確保網路穩定。
+
+---
+
+## 技術選型
+
+| 項目 | 選擇 | 理由 |
+|------|------|------|
+| 語言 | **Python 3** | Pi 上開發最方便，生態完整 |
+| Web 框架 | **FastAPI** | 異步高性能、自動 OpenAPI 文檔、型別驗證 |
+| 資料庫 | **SQLite** | 輕量、零配置、Pi 完美支援 |
+| ORM | **直接 SQL** (sqlite3 模組) | 簡單場景不需要 ORM 開銷 |
+| BioHash | **移植 biohash_processor 為 Python** | 用 NumPy 做矩陣運算更快 |
+| BCH | **bchlib** (pip install) | Python BCH 庫 |
+| CV181X HTTP | **libcurl** (C) 或 **cpp-httplib** (header-only) | 嵌入式友好 |
+
+---
+
+## Proposed Changes
+
+### Pi 伺服器端 (新專案)
+
+#### [NEW] `pi-server/main.py` — FastAPI 主程式
+
+```python
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import sqlite3, numpy as np
+
+app = FastAPI(title="gmailk-V Face Database API")
+
+class EnrollRequest(BaseModel):
+    name: str
+    feature: list[float]  # 512 維
+
+class VerifyRequest(BaseModel):
+    feature: list[float]  # 512 維
+
+class PersonResponse(BaseModel):
+    id: int
+    name: str
+    bch_errors: int
+```
+
+API 端點設計：
+
+| Method | Endpoint | 功能 | Request Body | Response |
+|--------|----------|------|-------------|----------|
+| `POST` | `/enroll` | 註冊新人 | `{name, feature[512]}` | `{id, name, template_created}` |
+| `POST` | `/verify` | 驗證人臉 | `{feature[512]}` | `{matched, person: {id, name, info}, bch_errors}` |
+| `GET` | `/persons` | 列出所有人 | — | `[{id, name, created_at}]` |
+| `GET` | `/persons/{id}` | 取得個人資訊 | — | `{id, name, info, created_at}` |
+| `DELETE` | `/persons/{id}` | 刪除人員 | — | `{ok}` |
+| `PUT` | `/persons/{id}` | 更新人員資訊 | `{name?, info?}` | `{ok}` |
+| `POST` | `/input-vector` | 手動輸入向量測試 | `{feature[512], name?}` | `{enroll_result 或 verify_result}` |
+| `GET` | `/health` | 健康檢查 | — | `{status: "ok"}` |
+
+#### [NEW] `pi-server/biohash.py` — BioHash + BCH Python 實作
+
+- 移植 [biohash_processor.cpp](file:///home/lilin/sx/gmailk-V/src/biohash_processor.cpp) 的邏輯
+- 使用 NumPy 做矩陣投影（比 C++ 逐元素更快）
+- 使用 `bchlib` 做 BCH 編解碼
+
+#### [NEW] `pi-server/database.py` — SQLite 操作
+
+```sql
+CREATE TABLE persons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    info TEXT DEFAULT '',            -- 額外可顯示的個人資訊
+    biohash_template BLOB NOT NULL,  -- 序列化的 BioHashTemplate
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+#### [NEW] `pi-server/requirements.txt`
+
+```
+fastapi>=0.100
+uvicorn>=0.20
+numpy
+bchlib
+pydantic
+```
+
+---
+
+### CV181X 端修改
+
+#### [MODIFY] [src/face_database.cpp](file:///home/lilin/sx/gmailk-V/src/face_database.cpp) → 改為 HTTP client
+
+- 移除本地 JSON 讀寫
+- 新增 `FaceDatabase_RemoteVerify()` — POST 特徵到 Pi
+- 新增 `FaceDatabase_RemoteEnroll()` — POST 特徵 + 姓名到 Pi
+- 使用 **cpp-httplib** (header-only, 易交叉編譯)
+
+#### [MODIFY] [src/tdl_handler.cpp](file:///home/lilin/sx/gmailk-V/src/tdl_handler.cpp)
+
+- 將 [FaceDatabase_Verify()](file:///home/lilin/sx/gmailk-V/include/face_database.h#67-79) 改為呼叫遠端 API
+- 移除本地 [BioHashProcessor](file:///home/lilin/sx/gmailk-V/include/biohash_processor.h#51-114) 依賴（BioHash 在 Pi 上做）
+
+#### [MODIFY] [include/face_database.h](file:///home/lilin/sx/gmailk-V/include/face_database.h)
+
+- 新增遠端伺服器 URL 配置
+- 結構體加入 `server_url` 欄位
+
+#### [NEW] `include/3rdparty/httplib.h`
+
+- cpp-httplib header-only HTTP library
+
+---
+
+## 「看到人就解鎖資訊」的流程
+
+```mermaid
+sequenceDiagram
+    participant Cam as CV181X Camera
+    participant TDL as TDL Thread
+    participant Pi as Raspberry Pi
+
+    Cam->>TDL: 取幀
+    TDL->>TDL: SCRFD 偵測 + DeepSORT 追蹤
+    TDL->>TDL: 自動鎖定 (中心 3 秒)
+    TDL->>TDL: ArcFace 提取 512 維特徵
+    TDL->>Pi: POST /verify {feature}
+    Pi->>Pi: BioHash + BCH 驗證
+    Pi-->>TDL: {matched: true, person: {id: 1, name: "王小明", info: "員工編號 A001"}, bch_errors: 3}
+    TDL->>TDL: 顯示在 RTSP OSD + OLED
+```
+
+---
+
+## Verification Plan
+
+### Automated Tests
+- Pi 端：`pytest` 單元測試 BioHash Python 實作（與 C++ 版本交叉比對相同 seed 產生的結果）
+- Pi 端：`httpx` 整合測試 — 註冊 → 驗證 → 查詢 → 刪除
+
+### Manual Verification
+1. 在 Pi 上啟動 `uvicorn main:app --host 0.0.0.0 --port 8000`
+2. 用 `curl` 或瀏覽器打開 `http://<pi-ip>:8000/docs` 查看自動生成的 API 文檔
+3. 透過 `/input-vector` 端點手動貼入 512 維向量測試
+4. 在 CV181X 上運行修改後的程式，確認 RTSP 畫面顯示辨識結果
+5. **由使用者確認**：同一 LAN 下的延遲是否可接受

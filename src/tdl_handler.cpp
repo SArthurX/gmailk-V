@@ -16,6 +16,7 @@
 #include "helpers/oled_helper.hpp"
 #include "helpers/feature_verify_helper.hpp"
 #include "helpers/pending_task_helper.hpp"
+#include "crypto_utils.hpp"
 
 extern "C" {
 #include <cvi_sys.h>
@@ -246,7 +247,7 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
                 UNLOCK_MATCH_RESULT_MUTEX();
                 
                 if (hasMatch) {
-                    // 顯示匹配的姓名和相似度
+                    // 顯示匹配的姓名和錯誤數
                     char name_text[128];
                     snprintf(name_text, sizeof(name_text), "%s (err:%d)", 
                             matchResult.name.c_str(), matchResult.bch_errors);
@@ -254,6 +255,17 @@ CVI_S32 TDLHandler_DrawFaceRect(TDLHandler_t *pstHandler,
                     CVI_TDL_Service_ObjectWriteText(name_text, text_x, text_y - text_y_offset, pstFrame,
                                                    0.0f, 255.0f, 0.0f);  // Green text for match
                     text_y_offset += 15;
+                    
+                    // 顯示解密後的酬載摘要（若有）
+                    if (!matchResult.decrypted_payload.empty()) {
+                        char payload_text[128];
+                        // 截取前 40 字元顯示
+                        std::string summary = matchResult.decrypted_payload.substr(0, 40);
+                        snprintf(payload_text, sizeof(payload_text), "[%s]", summary.c_str());
+                        CVI_TDL_Service_ObjectWriteText(payload_text, text_x, text_y - text_y_offset, pstFrame,
+                                                       100.0f, 255.0f, 100.0f);  // Light green
+                        text_y_offset += 15;
+                    }
                 } else if (is_selected) {
                     // 如果已選中但無匹配，顯示 "Unknown" 或特徵數據
                     LOCK_FEATURE_MUTEX();
@@ -448,7 +460,7 @@ void* TDLHandler_RemoteDBThreadRoutine(void* pHandle) {
             for (const auto& result : results) {
                 if (g_bExit) break;
                 if (result.success) {
-                    if (RemoteDatabase_CompletePerson(db, result.person_id, result.template_hex) == 0) {
+                    if (RemoteDatabase_CompletePerson(db, result.person_id, result.template_hex, result.encrypted_payload_hex) == 0) {
                         std::cout << "[Background] ✅ Uploaded registration for person ID " << result.person_id << std::endl;
                         attempted_ids.erase(result.person_id);  // 成功，允許未來重新處理
                     } else {
@@ -496,6 +508,7 @@ void* TDLHandler_RemoteDBThreadRoutine(void* pHandle) {
                         task.name = person.name;
                         task.local_photo_path = local_path;
                         task.valid_date = person.valid_date;
+                        task.description = person.description;
 
                         LOCK_PENDING_TASK_MUTEX();
                         g_vecPendingTasks.push_back(task);
@@ -520,7 +533,9 @@ void* TDLHandler_RemoteDBThreadRoutine(void* pHandle) {
 
 CVI_S32 TDLHandler_ProcessImageAndEnroll(TDLHandler_t *pstHandler, const char *imgPath,
                                          std::string &outTemplateHex,
-                                         const std::string &valid_date) {
+                                         const std::string &valid_date,
+                                         const std::string &payload_text,
+                                         std::string &outEncryptedPayloadHex) {
     if (!pstHandler || !pstHandler->featureExtractor || !pstHandler->biohashProcessor || !imgPath) {
         std::cerr << "TDLHandler_ProcessImageAndEnroll: Missing component or image path" << std::endl;
         return CVI_FAILURE;
@@ -544,7 +559,6 @@ CVI_S32 TDLHandler_ProcessImageAndEnroll(TDLHandler_t *pstHandler, const char *i
     }
 
     // === 使用官方 CVI_TDL_ReadImage API 讀取圖片 ===
-    // 此 API 通過獨立的 imgprocess_t 管線處理，不依賴 VPSS Grp0 的綁定狀態
     imgprocess_t img_handle = NULL;
     CVI_TDL_Create_ImageProcessor(&img_handle);
     if (!img_handle) {
@@ -567,13 +581,13 @@ CVI_S32 TDLHandler_ProcessImageAndEnroll(TDLHandler_t *pstHandler, const char *i
     std::cout << "📸 Image loaded: " << frame.stVFrame.u32Width << "x" << frame.stVFrame.u32Height 
               << " format=" << frame.stVFrame.enPixelFormat << std::endl;
     
-    // VPSS Grp0 仍需解綁才能讓 FaceDetection 的 VPSS 前處理接受記憶體幀
+    // VPSS Grp0 解綁
     MMF_CHN_S stSrcChn = {CVI_ID_VI, 0, 0};
     MMF_CHN_S stDestChn = {CVI_ID_VPSS, 0, 0};
 
     pthread_mutex_lock(&pstHandler->tdlMutex);
     CVI_SYS_UnBind(&stSrcChn, &stDestChn);
-    usleep(100000);  // 100ms 排空管線
+    usleep(100000);
     
     cvtdl_face_t face_meta = {0};
     ret = CVI_TDL_FaceDetection(pstHandler->tdlHandle, &frame, CVI_TDL_SUPPORTED_MODEL_SCRFDFACE, &face_meta);
@@ -590,9 +604,20 @@ CVI_S32 TDLHandler_ProcessImageAndEnroll(TDLHandler_t *pstHandler, const char *i
         pthread_mutex_unlock(&pstHandler->tdlMutex);
         
         if (ext_ret == CVI_SUCCESS) {
-            BioHashTemplate tmpl = pstHandler->biohashProcessor->enroll(feature, enroll_seed);
-            if (tmpl.is_valid()) {
-                outTemplateHex = tmpl.to_hex();
+            // Fuzzy Commitment v2 enroll
+            EnrollResult enrollResult = pstHandler->biohashProcessor->enroll(feature, enroll_seed);
+            if (enrollResult.tmpl.is_valid()) {
+                // 如果有酬載明文，用金鑰加密
+                if (!payload_text.empty() && !enrollResult.key.empty()) {
+                    auto encrypted = crypto::encrypt_payload(enrollResult.key, payload_text);
+                    if (!encrypted.empty()) {
+                        enrollResult.tmpl.encrypted_payload = encrypted;
+                        outEncryptedPayloadHex = crypto::bytes_to_hex(encrypted.data(), encrypted.size());
+                        std::cout << "🔒 Payload encrypted: " << payload_text.size() 
+                                  << " chars → " << encrypted.size() << " bytes" << std::endl;
+                    }
+                }
+                outTemplateHex = enrollResult.tmpl.to_hex();
             } else {
                 std::cerr << "TDLHandler_ProcessImageAndEnroll: Failed to generate BioHash" << std::endl;
                 ret = CVI_FAILURE;

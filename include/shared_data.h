@@ -38,6 +38,7 @@ struct MatchResult {
     std::string name;
     int bch_errors;      // BCH 糾正的錯誤數（越少越匹配）
     int person_id;
+    std::string decrypted_payload;  // 解密後的酬載明文（可選）
 };
 extern std::map<int, MatchResult> g_mapTrackMatchResults;
 extern pthread_mutex_t g_MatchResultMutex;
@@ -49,7 +50,8 @@ struct PendingTask_t {
     int person_id;
     std::string name;
     std::string local_photo_path;
-    std::string valid_date;  // "YYYYMMDDHHmm" 有效期（萬用零：MM/DD/HH/mm=00 代表更粗粒度）
+    std::string valid_date;   // "YYYYMMDDHHmm" 有效期
+    std::string description;  // 酬載明文來源（從 Web UI 註冊時取得）
 };
 extern std::vector<PendingTask_t> g_vecPendingTasks;
 extern pthread_mutex_t g_PendingTaskMutex;
@@ -58,6 +60,7 @@ extern pthread_mutex_t g_PendingTaskMutex;
 struct CompletedTask_t {
     int person_id;
     std::string template_hex;
+    std::string encrypted_payload_hex;  // 加密酬載 hex
     bool success;
 };
 extern std::vector<CompletedTask_t> g_vecCompletedTasks;
