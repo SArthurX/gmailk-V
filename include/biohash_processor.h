@@ -7,24 +7,29 @@
 #include <array>
 
 // ==================== BioHash + BCH 參數 ====================
-#define BIOHASH_DIM       512     // 投影維度 = ArcFace 特徵維度
-#define BIOHASH_K         128     // 可靠位元數 (提高至 128 以提升安全性與穩定性)
-#define BIOHASH_K_BYTES   ((BIOHASH_K + 7) / 8)  // = 16 bytes
-#define BCH_M             9       // GF(2^9), 碼字長度 n = 511
-#define BCH_T             25      // 糾錯能力：可糾正 25 個錯誤 (容錯率 ~19.5%)
-#define COMMITMENT_SIZE   32      // SHA-256 output size
+#define BIOHASH_FEATURE_DIM  512   // ArcFace 輸入特徵維度（不變）
+#define BIOHASH_PROJ_DIM    2048   // 隨機投影輸出維度（4× 擴展，安全性修復）
+#define BIOHASH_K           511    // 可靠位元數 = BCH 碼字長度 n（全域 XOR 覆蓋）
+#define BIOHASH_K_BYTES     ((BIOHASH_K + 7) / 8)  // = 64 bytes
+#define BCH_M               9     // GF(2^9), 碼字長度 n = 511
+#define BCH_T               42    // 糾錯能力：可糾正 42 個錯誤 (量化分析驗證)
+#define BCH_N               ((1 << BCH_M) - 1)  // = 511
+#define BIOHASH_KEY_BYTES   16    // 隨機金鑰 K 長度 = 128 bits
+#define COMMITMENT_SIZE     32    // SHA-256 output size
 
 /**
- * @brief BioHash 保護模板 — Fuzzy Commitment 方案 (v2)
+ * @brief BioHash 保護模板 — Fuzzy Commitment 方案 (v3)
  * 
- * v2 格式: [version:1B=0x02][ecc_len:1B][indices:256B][sketch:data+ecc]
+ * v3 格式: [version:1B=0x03][ecc_len:1B][indices:1022B][sketch:64B]
  *          [commitment:32B][enc_payload_len:2B][encrypted_payload:變長]
  * 
- * 安全性: sketch = 人臉位元 ⊕ BCH(隨機金鑰K)，金鑰不以任何形式明文存在。
- *         只有正確的人臉才能從 sketch 中恢復金鑰 K，用於解密加密酬載。
+ * v3 安全性升級 (相比 v2):
+ *   - 投影維度 512→2048，選取 511 個最穩定 bits（取代 128 bits）
+ *   - sketch = B(511 bits) ⊕ C(511 bits) 全域 XOR（消除 ECC 明文洩漏漏洞）
+ *   - BCH_T 從 25 升級至 42（量化分析驗證，INT8 正臉 Max=14，三倍容錯）
  */
 struct BioHashTemplate {
-    uint8_t version = 2;                         // 模板版本 (2 = Fuzzy Commitment)
+    uint8_t version = 3;                         // 模板版本 (3 = 2048-dim 全域 XOR)
     std::vector<int> indices;                    // BIOHASH_K 個可靠位元索引
     std::vector<uint8_t> sketch;                 // δ = B ⊕ C (取代 codeword)
     std::array<uint8_t, COMMITMENT_SIZE> commitment = {};  // SHA-256(K)
@@ -52,11 +57,11 @@ struct BioHashTemplate {
 /**
  * @brief Fuzzy Commitment 註冊結果
  * 
- * enroll_v2() 返回模板 + 128-bit 隨機金鑰，呼叫者可用金鑰加密酬載。
+ * enroll() 返回模板 + 128-bit 隨機金鑰，呼叫者可用金鑰加密酬載。
  */
 struct EnrollResult {
     BioHashTemplate tmpl;
-    std::vector<uint8_t> key;   // 128-bit 隨機金鑰（16 bytes）
+    std::vector<uint8_t> key;   // 128-bit 隨機金鑰（BIOHASH_KEY_BYTES bytes）
 };
 
 /**

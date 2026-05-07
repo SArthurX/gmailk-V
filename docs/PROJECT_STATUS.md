@@ -1,7 +1,7 @@
 # gmailk-V 專案全景狀態文件
 
 > **目的**：讓 AI 協作夥伴在下一次對話中快速進入狀況。
-> **最後更新**：2026-05-02 (Phase 3: Fuzzy Commitment + 加密酬載)
+> **最後更新**：2026-05-07 (v3: 2048-dim 全域 XOR + BCH_T=42)
 
 ---
 
@@ -172,12 +172,14 @@ graph TB
 
 | 參數 | 值 | 說明 |
 |------|-----|------|
-| `BIOHASH_DIM` | 512 | 投影維度 = ArcFace 特徵維度 |
-| `BIOHASH_K` | 128 | 選取的可靠位元數 |
+| `BIOHASH_FEATURE_DIM` | 512 | ArcFace 特徵維度（輸入） |
+| `BIOHASH_PROJ_DIM` | 2048 | 隨機投影輸出維度（4× 擴展） |
+| `BIOHASH_K` | 511 | 選取的可靠位元數 = BCH 碼字長度 n |
 | `BCH_M` | 9 | GF(2^9), 碼字長度 n=511 |
-| `BCH_T` | 25 | 糾錯能力：可糾正 25 bit 錯誤 (~19.5% 容錯率) |
+| `BCH_T` | 42 | 糾錯能力：可糾正 42 bit 錯誤 (量化分析驗證) |
+| `BIOHASH_KEY_BYTES` | 16 | 隨機金鑰 K = 128 bits |
 
-**註冊**：`feature` → 隨機投影(seed=YYYYMMDDHHmm) → 二值化(中位數閾值) → 128 可靠位元選擇 → BCH 編碼 → 儲存 `{indices, codeword}`
+**註冊**：`feature` → 隨機投影(2048×512, seed=YYYYMMDDHHmm) → 二值化(中位數閾值) → 511 可靠位元選擇 → BCH 編碼 → 全域 XOR → 儲存 `{indices, sketch, commitment}`
 
 **驗證**（萬用零種子策略）：
 1. 生成恆定 5 個候選種子（年/月/日/時/分）
@@ -293,7 +295,9 @@ vlc rtsp://<device-ip>:554/h264
   - RPi `GET /api/pending` 輕量端點
 
 - **面部衍生金鑰 (Face-Derived Key) + Fuzzy Commitment** (Phase 3)
-  - Fuzzy Commitment 方案：sketch δ = 人臉位元 ⊕ BCH(隨機金鑰K)
+  - Fuzzy Commitment v3：2048 維投影擴展，511-bit 全域 XOR
+  - sketch δ = 人臉位元(511) ⊕ BCH(隨機金鑰K)(511)（消除 ECC 明文洩漏）
+  - BCH_T=42（量化分析驗證，INT8 正臉 Max=14，三倍安全容錯）
   - SHA-256 commitment 驗證金鑰正確性
   - AES-128-CTR + HMAC-SHA256 加密酬載（描述資訊）
   - 驗證時恢復金鑰 → 解密酬載 → RTSP 串流顯示

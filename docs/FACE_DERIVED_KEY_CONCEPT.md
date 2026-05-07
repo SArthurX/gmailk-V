@@ -1,7 +1,7 @@
 # 面部衍生金鑰 (Face-Derived Key) — Fuzzy Commitment 方案
 
 > **建立日期**：2026-04-07  
-> **狀態**：概念設計完成，待實作  
+> **狀態**：✅ v3 實作完成 (2048-dim 全域 XOR + BCH_T=42)  
 > **前置文件**：`bioh-bch/process_explanation.md`、`docs/RPI_ARCHITECTURE.md`  
 > **參考理論**：Juels & Wattenberg, "A Fuzzy Commitment Scheme" (1999)
 
@@ -602,29 +602,24 @@ Phase 1 (已完成): RPi HTTP Server + 分頁式 Web UI
   - 照片上傳 + 日期種子選擇 + pending/completed 狀態
   - 移除加密酬載手動輸入（由裝置端自動產生）
 
-Phase 2 (下一步): CV181X ↔ RPi HTTP 對接
+Phase 2 (已完成): CV181X ↔ RPi HTTP 對接
   - cpp-httplib + remote_database
   - 裝置啟動時 GET /api/templates
   - 長按 POST 新模板到 RPi
-  - 處理 pending 註冊：讀取照片 → BioHash → POST /api/persons/{id}/complete
+  - 處理 pending 註冊
 
-Phase 3: Fuzzy Commitment 改造
-  ├── 3a: biohash_processor v2 (enroll/verify 邏輯改造)
-  ├── 3b: 模板格式 v2 (sketch + commitment)
-  ├── 3c: v1/v2 向下兼容解析
-  └── 3d: face_database 適配新格式
+Phase 3 (✅ 已完成): Fuzzy Commitment v3 改造
+  ├── 3a: 2048 維投影擴展 (512×512 → 2048×512)
+  ├── 3b: 511-bit 全域 XOR (消除 ECC 明文洩漏漏洞)
+  ├── 3c: BCH_T=42 (量化分析驗證)
+  ├── 3d: 模板格式 v3 (sketch + commitment, version=0x03)
+  ├── 3e: AES-128-CTR + HMAC-SHA256 加密酬載
+  └── 3f: RPi API 支援 encrypted_payload
 
-Phase 4: 加密酬載
-  ├── 4a: AES-GCM 實作 (tiny-AES-c 或 mbedtls)
-  ├── 4b: enroll 時加密酬載
-  ├── 4c: verify 時解密酬載
-  ├── 4d: RPi schema + UI 支持酬載欄位
-  └── 4e: OLED/RTSP 顯示解密後資訊
-
-Phase 5: 進階功能
-  ├── 5a: 外部工具 (手機端 enroll 工具，可獨立產生碼字封包)
-  ├── 5b: 多重酬載 (一個人多個加密資料包)
-  └── 5c: 酬載過期策略
+Phase 4 (未來): 進階功能
+  ├── 4a: 外部工具 (手機端 enroll 工具，可獨立產生碼字封包)
+  ├── 4b: 多重酬載 (一個人多個加密資料包)
+  └── 4c: 酬載過期策略
 ```
 
 ### Phase 3 詳解：Fuzzy Commitment 改造

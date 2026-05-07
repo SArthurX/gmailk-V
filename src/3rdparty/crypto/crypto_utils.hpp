@@ -144,7 +144,7 @@ inline std::vector<uint8_t> encrypt_payload(
     const std::vector<uint8_t>& key,
     const std::string& plaintext)
 {
-    if (key.size() != 16 || plaintext.empty()) {
+    if (key.size() < 16 || plaintext.empty()) {
         return {};
     }
 
@@ -193,7 +193,7 @@ inline bool decrypt_payload(
     std::string& plaintext)
 {
     // 最小長度: IV(16) + 最少 1 byte + HMAC(32) = 49
-    if (key.size() != 16 || blob.size() < 49) {
+    if (key.size() < 16 || blob.size() < 49) {
         return false;
     }
 
