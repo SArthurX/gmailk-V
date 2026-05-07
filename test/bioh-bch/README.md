@@ -1,6 +1,6 @@
 # BCH Quantitative Analysis Simulation
 
-本程式用於模擬並計算 BioHash 演算法中最佳的 BCH 容錯力（$t$ 值），確保系統具備最高的安全性（FAR = 0）與最佳的體驗（極低的 FRR）。
+本程式用於模擬並計算 BioHash 演算法中最佳的 BCH 容錯力（ $t$ 值），確保系統具備最高的安全性（FAR = 0）與最佳的體驗（極低的 FRR）。
 
 ## 1. 如何使用真實資料做測試
 
