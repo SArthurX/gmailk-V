@@ -2,11 +2,13 @@
 #include <iostream>
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
 #include <algorithm>
 
 extern "C" {
-#include "ssd1306.h"
-#include "linux_i2c.h"
+#include "DEV_Config.h"
+#include "OLED_1in51.h"
+#include "GUI_Paint.h"
 }
 
 // 繪製線段 (Bresenham's line algorithm)
@@ -35,36 +37,48 @@ static void draw_line(OLEDHandler_t *pstHandler,
     }
 }
 
-int OLEDHandler_Init(OLEDHandler_t *pstHandler, uint8_t i2c_dev) {
+int OLEDHandler_Init(OLEDHandler_t *pstHandler) {
     if (!pstHandler) {
         std::cerr << "OLEDHandler_Init: Invalid handler pointer" << std::endl;
         return -1;
     }
 
     std::memset(pstHandler, 0, sizeof(OLEDHandler_t));
-    pstHandler->i2c_dev = i2c_dev;
 
-    uint8_t ret = ssd1306_init(i2c_dev);
-    if (ret != 0) {
-        std::cerr << "Failed to initialize SSD1306, ret=" << (int)ret << std::endl;
+    // 初始化 DEV_Config (wiringX + SPI + GPIO)
+    if (DEV_ModuleInit() != 0) {
+        std::cerr << "Failed to initialize DEV_Module (wiringX/SPI)" << std::endl;
         return -1;
     }
 
-    // 配置 OLED (128x64)
-    ret = ssd1306_oled_default_config(SSD1306_128_64_LINES, SSD1306_128_64_COLUMNS);
-    if (ret != 0) {
-        std::cerr << "Failed to configure SSD1306, ret=" << (int)ret << std::endl;
-        ssd1306_end();
+    // 初始化 1.51" 透明 OLED (SPI)
+    OLED_1in51_Init();
+    DEV_Delay_ms(200);
+    OLED_1in51_Clear();
+
+    // 分配 GUI_Paint 影像緩衝區
+    // OLED_1in51_WIDTH=64, OLED_1in51_HEIGHT=128
+    uint16_t imagesize = ((OLED_1in51_WIDTH % 8 == 0) ? 
+                          (OLED_1in51_WIDTH / 8) : 
+                          (OLED_1in51_WIDTH / 8 + 1)) * OLED_1in51_HEIGHT;
+    
+    pstHandler->image_buffer = (uint8_t *)malloc(imagesize);
+    if (!pstHandler->image_buffer) {
+        std::cerr << "Failed to allocate OLED image buffer" << std::endl;
+        DEV_ModuleExit();
         return -1;
     }
 
-    ssd1306_oled_onoff(1);
-    OLEDHandler_ClearScreen(pstHandler);
+    // 初始化 GUI_Paint，旋轉 270 度使邏輯坐標為 128x64 (寬x高)
+    Paint_NewImage(pstHandler->image_buffer, 
+                   OLED_1in51_WIDTH, OLED_1in51_HEIGHT, 
+                   270, BLACK);
+    Paint_SelectImage(pstHandler->image_buffer);
+    Paint_Clear(BLACK);
 
     pstHandler->initialized = 1;
     
-    std::cout << "OLED Handler initialized successfully (128x64)" << std::endl;
-    std::cout << "I2C device: " << (int)i2c_dev << std::endl;
+    std::cout << "OLED Handler initialized successfully (128x64, SPI, 1.51\" transparent)" << std::endl;
     
     return 0;
 }
@@ -72,8 +86,14 @@ int OLEDHandler_Init(OLEDHandler_t *pstHandler, uint8_t i2c_dev) {
 void OLEDHandler_Cleanup(OLEDHandler_t *pstHandler) {
     if (pstHandler && pstHandler->initialized) {
         OLEDHandler_ClearScreen(pstHandler);
-        ssd1306_oled_onoff(0);
-        ssd1306_end();
+        
+        // 釋放影像緩衝區
+        if (pstHandler->image_buffer) {
+            free(pstHandler->image_buffer);
+            pstHandler->image_buffer = nullptr;
+        }
+        
+        DEV_ModuleExit();
         pstHandler->initialized = 0;
         std::cout << "OLED Handler cleaned up" << std::endl;
     }
@@ -81,11 +101,13 @@ void OLEDHandler_Cleanup(OLEDHandler_t *pstHandler) {
 
 int OLEDHandler_ClearScreen(OLEDHandler_t *pstHandler) {
     if (!pstHandler || !pstHandler->initialized)
+        return -1;
 
-    std::memset(pstHandler->frame_buffer, 0, sizeof(pstHandler->frame_buffer));
-    uint8_t ret = ssd1306_oled_clear_screen();
+    Paint_SelectImage(pstHandler->image_buffer);
+    Paint_Clear(BLACK);
+    OLED_1in51_Clear();
     
-    return (ret == 0) ? 0 : -1;
+    return 0;
 }
 
 void OLEDHandler_ConvertCoordinate(float src_x, float src_y, 
@@ -117,14 +139,9 @@ void OLEDHandler_DrawPixel(OLEDHandler_t *pstHandler,
     if (!pstHandler || x >= OLED_WIDTH || y >= OLED_HEIGHT)
         return;
 
-    // OLED 是垂直排列的，8 個像素為一個 byte
-    uint16_t index = x + (y / 8) * OLED_WIDTH;
-    uint8_t bit = y % 8;
-
-    if (color)
-        pstHandler->frame_buffer[index] |= (1 << bit);
-    else
-        pstHandler->frame_buffer[index] &= ~(1 << bit);
+    // 使用 GUI_Paint 的 SetPixel 繪製像素
+    // Paint_NewImage 已旋轉 270 度，邏輯坐標系為 128(W) x 64(H)
+    Paint_SetPixel(x, y, color ? WHITE : BLACK);
 }
 
 void OLEDHandler_DrawRect(OLEDHandler_t *pstHandler,
@@ -170,34 +187,11 @@ void OLEDHandler_DrawCrosshair(OLEDHandler_t *pstHandler) {
 }
 
 int OLEDHandler_FlushBuffer(OLEDHandler_t *pstHandler) {
-    if (!pstHandler || !pstHandler->initialized)
+    if (!pstHandler || !pstHandler->initialized || !pstHandler->image_buffer)
         return -1;
 
-    ssd1306_oled_set_mem_mode(SSD1306_HORI_MODE);
-    ssd1306_oled_set_col(0, OLED_WIDTH - 1);
-    
-    // 設置頁地址範圍 (0-7, 每頁 8 行)
-    ssd1306_oled_set_page(0, (OLED_HEIGHT / 8) - 1);
-
-    // 寫入數據到 OLED
-    // 分批寫入數據 (SSD1306 控制字節 + 數據)
-    const uint16_t chunk_size = 128;
-    uint16_t total_bytes = OLED_WIDTH * OLED_HEIGHT / 8;
-    
-    for (uint16_t i = 0; i < total_bytes; i += chunk_size) {
-        uint16_t bytes_to_write = std::min((uint16_t)chunk_size, (uint16_t)(total_bytes - i));
-        
-        // 準備數據包：控制字節 + 數據
-        uint8_t packet[chunk_size + 1];
-        packet[0] = SSD1306_DATA_CONTROL_BYTE;
-        std::memcpy(packet + 1, pstHandler->frame_buffer + i, bytes_to_write);
-        
-        uint8_t ret = _i2c_write(packet, bytes_to_write + 1);
-        if (ret != 0) {
-            std::cerr << "Failed to write to OLED at offset " << i << std::endl;
-            return -1;
-        }
-    }
+    // 使用 waveshare 驅動直接刷新影像緩衝區到 OLED
+    OLED_1in51_Display(pstHandler->image_buffer);
 
     return 0;
 }
@@ -208,18 +202,13 @@ int OLEDHandler_DisplayInfo(OLEDHandler_t *pstHandler,
     if (!pstHandler || !pstHandler->initialized)
         return -1;
 
-    char info_line1[32];
-    char info_line2[32];
+    char info_line[32];
     
-    snprintf(info_line1, sizeof(info_line1), "Faces:%u", face_count);
-    snprintf(info_line2, sizeof(info_line2), "FPS:%.1f", fps);
-
-    // 在螢幕頂部顯示
-    ssd1306_oled_set_XY(0, 0);
-    ssd1306_oled_write_string(SSD1306_FONT_SMALL, info_line1);
+    // 在螢幕頂部顯示 (使用 GUI_Paint 文字繪製)
+    snprintf(info_line, sizeof(info_line), "F:%u FPS:%.1f", face_count, fps);
     
-    ssd1306_oled_set_XY(0, 1);
-    ssd1306_oled_write_string(SSD1306_FONT_SMALL, info_line2);
+    Paint_SelectImage(pstHandler->image_buffer);
+    Paint_DrawString_EN(0, 0, info_line, &Font8, WHITE, BLACK);
 
     return 0;
 }
@@ -231,7 +220,9 @@ int OLEDHandler_UpdateDisplay(OLEDHandler_t *pstHandler,
     if (!pstHandler || !pstHandler->initialized)
         return -1;
 
-    std::memset(pstHandler->frame_buffer, 0, sizeof(pstHandler->frame_buffer));
+    // 選擇影像緩衝區並清空
+    Paint_SelectImage(pstHandler->image_buffer);
+    Paint_Clear(BLACK);
 
     // 繪製十字準星
     OLEDHandler_DrawCrosshair(pstHandler);
@@ -258,13 +249,11 @@ int OLEDHandler_UpdateDisplay(OLEDHandler_t *pstHandler,
         }
     }
 
+    // 顯示FPS和人臉數量 (直接繪製到 frame buffer)
+    OLEDHandler_DisplayInfo(pstHandler, face_count, fps);
+
     // 將 frame buffer 刷新到 OLED
     int ret = OLEDHandler_FlushBuffer(pstHandler);
-    if (ret != 0)
-        return ret;
-
-    // 顯示FPS和人臉數量
-    ret = OLEDHandler_DisplayInfo(pstHandler, face_count, fps);
 
     return ret;
 }

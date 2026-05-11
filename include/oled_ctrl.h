@@ -24,21 +24,19 @@ typedef struct {
 
 // OLED 處理器結構
 typedef struct {
-    uint8_t i2c_dev;        // I2C 設備節點 (0, 1, 2...)
     uint8_t initialized;    // 初始化標誌
-    uint8_t frame_buffer[OLED_WIDTH * OLED_HEIGHT / 8];  // 顯示緩衝區
+    uint8_t *image_buffer;  // GUI_Paint 使用的影像緩衝區
 } OLEDHandler_t;
 
 /**
- * @brief 初始化 OLED 處理器
+ * @brief 初始化 OLED
  * @param pstHandler OLED 處理器指針
- * @param i2c_dev I2C 設備節點 (通常是 2)
  * @return 0 成功, 非 0 失敗
  */
-int OLEDHandler_Init(OLEDHandler_t *pstHandler, uint8_t i2c_dev);
+int OLEDHandler_Init(OLEDHandler_t *pstHandler);
 
 /**
- * @brief 清理 OLED 處理器
+ * @brief 清理 OLED
  * @param pstHandler OLED 處理器指針
  */
 void OLEDHandler_Cleanup(OLEDHandler_t *pstHandler);
@@ -65,8 +63,8 @@ int OLEDHandler_UpdateDisplay(OLEDHandler_t *pstHandler,
 
 /**
  * @brief 將原始坐標轉換為 OLED 坐標
- * @param src_x 原始 X 坐標 (0-1920)
- * @param src_y 原始 Y 坐標 (0-1080)
+ * @param src_x 原始 X 坐標 (0-1280)
+ * @param src_y 原始 Y 坐標 (0-720)
  * @param dst_x 輸出 OLED X 坐標 (0-128)
  * @param dst_y 輸出 OLED Y 坐標 (0-64)
  */
