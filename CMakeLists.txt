@@ -34,7 +34,7 @@ add_executable(main
     ${CPP_SOURCES}
     ${C_SOURCES}
     ${COMMON_SOURCES} 
-    ${SSD1306_SOURCES}
+    ${OLED_1IN51_SOURCES}
 )
 
 target_link_common_libraries(main)

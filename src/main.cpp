@@ -29,7 +29,7 @@ int main(int argc, char *argv[]) {
     std::cout << "\nUsage: " << argv[0] << " SCRFDFACE_MODEL_PATH [ARCFACE_CVIMODEL]\n\n"
               << "\tSCRFDFACE_MODEL_PATH, path to scrfdface model.\n"
               << "\tARCFACE_CVIMODEL (optional), path to ArcFace .cvimodel file (TPU).\n"
-              << "\t--oled, optional flag to enable OLED display (I2C-2).\n" 
+              << "\t--oled, optional flag to enable OLED display (1.51\" SPI).\n" 
               << "\nExample:\n"
               << "\t" << argv[0] << " models/scrfd.cvimodel\n"
               << "\t" << argv[0] << " models/scrfd.cvimodel models/arcface.cvimodel\n" 
@@ -107,13 +107,13 @@ int main(int argc, char *argv[]) {
     return -1;
   }
   
-  // Initialize OLED handler (I2C device 3) - optional
+  // Initialize OLED handler (1.51" transparent OLED, SPI) - optional
   OLEDHandler_t stOLEDHandler;
   std::memset(&stOLEDHandler, 0, sizeof(OLEDHandler_t));
   
   if (enable_oled) {
-    std::cout << "Attempting to initialize OLED display..." << std::endl;
-    s32Ret = OLEDHandler_Init(&stOLEDHandler, 3);
+    std::cout << "Attempting to initialize OLED display (1.51\" SPI)..." << std::endl;
+    s32Ret = OLEDHandler_Init(&stOLEDHandler);
     if (s32Ret != 0) {
       std::cerr << "Warning: OLED handler initialization failed!" << std::endl;
       std::cerr << "Warning: OLED display will be disabled" << std::endl;
@@ -172,7 +172,7 @@ int main(int argc, char *argv[]) {
   if (remote_db_enabled)
     std::cout << "Remote database (RPi): " << rpi_url << std::endl;
   if (stOLEDHandler.initialized)
-    std::cout << "OLED display (I2C-2) shows face detection results" << std::endl;
+    std::cout << "OLED display (1.51\" SPI) shows face detection results" << std::endl;
   else
     std::cout << "OLED display disabled (not connected or initialization failed)" << std::endl;
   std::cout << "Press Ctrl+C to stop..." << std::endl;

@@ -4,12 +4,17 @@
 #include "oled_ctrl.h"
 #include "geometry_helper.hpp"
 #include <algorithm>
+#include <cstring>
+#include <time.h>
 extern "C" {
 #include <cvi_comm.h>
 }
 
+// OLED 最大刷新間隔 (毫秒) — 限制約 10 FPS，避免 SPI 過載造成閃爍/撕裂
+#define OLED_MIN_REFRESH_MS 100
+
 // 更新 OLED 顯示
-// 準備人臉框數據並更新 OLED
+// 準備人臉框數據並更新 OLED (含幀率節流 + 髒幀檢測)
 static inline void UpdateOLEDDisplay(
     OLEDHandler_t* oledHandler,
     cvtdl_face_t* pstFaceMeta,
@@ -18,6 +23,19 @@ static inline void UpdateOLEDDisplay(
     
     if (!oledHandler || !oledHandler->initialized || !pstFaceMeta || !pstFrame)
         return;
+    
+    // === 幀率節流：避免 OLED SPI 傳輸跟不上 TDL 管線速度 ===
+    static struct timespec last_oled_time = {0, 0};
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    
+    long elapsed_ms = (now.tv_sec - last_oled_time.tv_sec) * 1000 
+                    + (now.tv_nsec - last_oled_time.tv_nsec) / 1000000;
+    
+    if (elapsed_ms < OLED_MIN_REFRESH_MS)
+        return;  // 跳過此幀，避免 SPI 過載
+    
+    last_oled_time = now;
     
     // 準備 OLED 人臉框數據
     OLEDFaceBox_t oled_faces[32]; // 最多支持 32 個人臉

@@ -63,15 +63,27 @@ include_directories(
 
     ${PROJECT_ROOT}/src/3rdparty
     ${PROJECT_ROOT}/src/3rdparty/bch
-    ${PROJECT_ROOT}/src/drivers/ssd1306
+    ${PROJECT_ROOT}/lib/waveshare_oled_1in51/lib/Config
+    ${PROJECT_ROOT}/lib/waveshare_oled_1in51/lib/OLED
+    ${PROJECT_ROOT}/lib/waveshare_oled_1in51/lib/GUI
+    ${PROJECT_ROOT}/lib/waveshare_oled_1in51/lib/Fonts
     
     ${OPENCV_INCLUDE_DIR}
     ${OPENCV_INCLUDE_DIR}/opencv4
 )
 
-set(SSD1306_SOURCES
-    ${PROJECT_ROOT}/src/drivers/ssd1306/ssd1306.c
-    ${PROJECT_ROOT}/src/drivers/ssd1306/linux_i2c.c
+# waveshare 1.51" 透明 OLED (SPI) - 需要 USE_WIRINGX_LIB
+add_compile_definitions(USE_WIRINGX_LIB)
+
+set(OLED_1IN51_SOURCES
+    ${PROJECT_ROOT}/lib/waveshare_oled_1in51/lib/Config/DEV_Config.c
+    ${PROJECT_ROOT}/lib/waveshare_oled_1in51/lib/OLED/OLED_1in51.c
+    ${PROJECT_ROOT}/lib/waveshare_oled_1in51/lib/GUI/GUI_Paint.c
+    ${PROJECT_ROOT}/lib/waveshare_oled_1in51/lib/Fonts/font8.c
+    ${PROJECT_ROOT}/lib/waveshare_oled_1in51/lib/Fonts/font12.c
+    ${PROJECT_ROOT}/lib/waveshare_oled_1in51/lib/Fonts/font16.c
+    ${PROJECT_ROOT}/lib/waveshare_oled_1in51/lib/Fonts/font20.c
+    ${PROJECT_ROOT}/lib/waveshare_oled_1in51/lib/Fonts/font24.c
 )
 
 set(COMMON_SOURCES
