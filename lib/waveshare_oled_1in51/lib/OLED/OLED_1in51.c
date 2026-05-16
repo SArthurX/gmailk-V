@@ -154,7 +154,8 @@ function:   Update all memory to OLED
 ********************************************************************************/
 void OLED_1in51_Display(UBYTE *Image)
 {
-    UWORD page, column, temp;
+    UWORD page, column;
+    UBYTE page_buf[128];
 
     for (page=0; page<8; page++) {
         /* set page address */
@@ -164,10 +165,13 @@ void OLED_1in51_Display(UBYTE *Image)
         /* set high column address */
         OLED_WriteReg(0x10);
 
-        /* write data */
+        /* pre-build page buffer for bulk transfer */
         for(column=0; column<128; column++) {
-            temp = Image[(7-page) + column*8];
-            OLED_WriteData(temp);
-        }       
+            page_buf[column] = Image[(7-page) + column*8];
+        }
+
+        /* bulk write entire page (128 bytes) in one SPI transaction */
+        OLED_DC_1;
+        DEV_SPI_Write_nByte(page_buf, 128);
     }
 }
