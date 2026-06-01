@@ -226,7 +226,7 @@ BioHashTemplate BioHashTemplate::from_hex(const std::string& hex) {
 // ==================== BioHashProcessor 方法 ====================
 
 BioHashProcessor::BioHashProcessor() {
-    std::cout << "✅ BioHashProcessor initialized (Fuzzy Commitment v3 — 全域 XOR)" << std::endl;
+    std::cout << "BioHashProcessor initialized (Fuzzy Commitment v3 — 全域 XOR)" << std::endl;
     std::cout << "   - Feature dim: " << BIOHASH_FEATURE_DIM 
               << " → Projection dim: " << BIOHASH_PROJ_DIM << std::endl;
     std::cout << "   - Reliable bits (K): " << BIOHASH_K << " (from " << BIOHASH_PROJ_DIM << ")" << std::endl;
@@ -374,7 +374,7 @@ EnrollResult BioHashProcessor::enroll(const std::vector<float>& feature, uint64_
     result.tmpl.version = 3;
     
     if (result.tmpl.is_valid()) {
-        std::cout << "✅ BioHash v3 template created (全域 XOR)" << std::endl;
+        std::cout << "BioHash template created" << std::endl;
         std::cout << "   - Template size: " 
                   << (1 + 1 + BIOHASH_K * 2 + BIOHASH_K_BYTES + 32 + 2) 
                   << " bytes (excl. payload)" << std::endl;
@@ -548,7 +548,7 @@ int BioHashProcessor::verify_multiple(const std::vector<float>& feature,
     free_bch(bch);
     
     if (best_match_idx >= 0) {
-        std::cout << "✅ Batch verify success: match index " << best_match_idx 
+        std::cout << "Batch verify success: match index " << best_match_idx 
                   << " (seed=" << matching_seed << ", errors=" << best_errors << ")" << std::endl;
     } else {
         std::cout << "❌ Batch verify failed: no match found" << std::endl;

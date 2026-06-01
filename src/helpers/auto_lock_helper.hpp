@@ -72,7 +72,7 @@ static inline void ProcessAutoLock(
             
             std::cout << "=== Auto-Lock Triggered ===" << std::endl;
             std::cout << "Track ID: " << center_track_id << std::endl;
-            std::cout << "🎯 Face at center for " << duration << "s - Auto-locked!" << std::endl;
+            std::cout << "Face at center for " << duration << "s - Auto-locked!" << std::endl;
             std::cout << "Feature extraction starting..." << std::endl;
             std::cout << "===========================" << std::endl;
         }

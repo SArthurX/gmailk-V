@@ -59,7 +59,9 @@ int OLEDHandler_ClearScreen(OLEDHandler_t *pstHandler);
 int OLEDHandler_UpdateDisplay(OLEDHandler_t *pstHandler, 
                               const OLEDFaceBox_t *faces, 
                               uint32_t face_count,
-                              float fps);
+                              float fps,
+                              const char *match_name,
+                              const char *match_payload);
 
 /**
  * @brief 將原始坐標轉換為 OLED 坐標
@@ -118,7 +120,9 @@ int OLEDHandler_FlushBuffer(OLEDHandler_t *pstHandler);
  */
 int OLEDHandler_DisplayInfo(OLEDHandler_t *pstHandler,
                             uint32_t face_count,
-                            float fps);
+                            float fps,
+                            const char *match_name,
+                            const char *match_payload);
 
 #ifdef __cplusplus
 }

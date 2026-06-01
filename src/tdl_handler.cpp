@@ -102,7 +102,7 @@ CVI_S32 TDLHandler_Init(TDLHandler_t *pstHandler, const char *modelPath,
         );
         
         if (pstHandler->featureExtractor && pstHandler->featureExtractor->isLoaded())
-            std::cout << "✅ Feature extractor initialized successfully" << std::endl;
+            std::cout << "Feature extractor initialized successfully" << std::endl;
         else {
             std::cerr << "⚠️  Feature extractor initialization failed, tracking will work without features" << std::endl;
             if (pstHandler->featureExtractor) {
@@ -412,7 +412,7 @@ void *TDLHandler_ThreadRoutine(void *pHandle) {
         // === 7. FPS 計算 + OLED 更新 ===
         FPSCalculator_Update(&fps_calculator);
         float current_fps = FPSCalculator_GetFPS(&fps_calculator);
-        UpdateOLEDDisplay(pstHandler->oledHandler, &stFaceMeta, &stFrame, current_fps);
+        UpdateOLEDDisplay(pstHandler->oledHandler, &stFaceMeta, &stTracker, &stFrame, current_fps);
         
         // === 8. 全域狀態同步 (TDL → VENC) ===
         SyncGlobalFaceData(&stFaceMeta, &stTracker);
@@ -461,7 +461,7 @@ void* TDLHandler_RemoteDBThreadRoutine(void* pHandle) {
                 if (g_bExit) break;
                 if (result.success) {
                     if (RemoteDatabase_CompletePerson(db, result.person_id, result.template_hex, result.encrypted_payload_hex) == 0) {
-                        std::cout << "[Background] ✅ Uploaded registration for person ID " << result.person_id << std::endl;
+                        std::cout << "[Background] Uploaded registration for person ID " << result.person_id << std::endl;
                         attempted_ids.erase(result.person_id);  // 成功，允許未來重新處理
                     } else {
                         std::cerr << "[Background] ⚠️ Failed to upload result for person ID " << result.person_id << std::endl;

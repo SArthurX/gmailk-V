@@ -198,17 +198,38 @@ int OLEDHandler_FlushBuffer(OLEDHandler_t *pstHandler) {
 
 int OLEDHandler_DisplayInfo(OLEDHandler_t *pstHandler,
                             uint32_t face_count,
-                            float fps) {
+                            float fps,
+                            const char *match_name,
+                            const char *match_payload) {
     if (!pstHandler || !pstHandler->initialized)
         return -1;
 
     char info_line[32];
     
-    // 在螢幕頂部顯示 (使用 GUI_Paint 文字繪製)
-    snprintf(info_line, sizeof(info_line), "F:%u FPS:%.1f", face_count, fps);
+    // === 右上角：FPS 資訊 ===
+    snprintf(info_line, sizeof(info_line), "F:%u %.0f", face_count, fps);
+    int text_len = (int)strlen(info_line);
+    // Font8: 5px wide per char, 右對齊到 128px 寬螢幕
+    int fps_x = OLED_WIDTH - text_len * 5;
+    if (fps_x < 0) fps_x = 0;
     
     Paint_SelectImage(pstHandler->image_buffer);
-    Paint_DrawString_EN(0, 0, info_line, &Font8, WHITE, BLACK);
+    Paint_DrawString_EN(fps_x, 0, info_line, &Font8, BLACK, WHITE);
+
+    // === 左上角：匹配結果 (姓名 + 酬載摘要) ===
+    if (match_name && match_name[0] != '\0') {
+        // 第一行：姓名
+        char name_line[22]; // 128/5 = 25 chars max, 留些空間
+        snprintf(name_line, sizeof(name_line), "%s", match_name);
+        Paint_DrawString_EN(0, 0, name_line, &Font8, BLACK, WHITE);
+        
+        // 第二行：酬載摘要 (y=8, Font8 高度為 8px)
+        if (match_payload && match_payload[0] != '\0') {
+            char payload_line[22];
+            snprintf(payload_line, sizeof(payload_line), "%s", match_payload);
+            Paint_DrawString_EN(0, 8, payload_line, &Font8, BLACK, WHITE);
+        }
+    }
 
     return 0;
 }
@@ -216,7 +237,9 @@ int OLEDHandler_DisplayInfo(OLEDHandler_t *pstHandler,
 int OLEDHandler_UpdateDisplay(OLEDHandler_t *pstHandler, 
                               const OLEDFaceBox_t *faces, 
                               uint32_t face_count,
-                              float fps) {
+                              float fps,
+                              const char *match_name,
+                              const char *match_payload) {
     if (!pstHandler || !pstHandler->initialized)
         return -1;
 
@@ -249,8 +272,8 @@ int OLEDHandler_UpdateDisplay(OLEDHandler_t *pstHandler,
         }
     }
 
-    // 顯示FPS和人臉數量 (直接繪製到 frame buffer)
-    OLEDHandler_DisplayInfo(pstHandler, face_count, fps);
+    // 顯示FPS、人臉數量、匹配結果 (直接繪製到 frame buffer)
+    OLEDHandler_DisplayInfo(pstHandler, face_count, fps, match_name, match_payload);
 
     // 將 frame buffer 刷新到 OLED
     int ret = OLEDHandler_FlushBuffer(pstHandler);

@@ -62,7 +62,7 @@ static inline void VerifyAgainstDatabase(
 
     if (match_ret == 0) {
         // 找到匹配
-        std::cout << "🎯 Match Found!" << std::endl;
+        std::cout << "Match Found!" << std::endl;
         std::cout << "   Name: " << match_person.name << std::endl;
         std::cout << "   BCH Errors: " << error_count << std::endl;
         std::cout << "   Person ID: " << match_person.id << std::endl;
@@ -91,7 +91,7 @@ static inline void VerifyAgainstDatabase(
 
             if (!ep_bytes.empty()) {
                 if (crypto::decrypt_payload(recovered_key, ep_bytes, decrypted_payload)) {
-                    std::cout << "🔓 Payload decrypted: " << decrypted_payload << std::endl;
+                    std::cout << " Payload decrypted: " << decrypted_payload << std::endl;
                 } else {
                     std::cerr << "⚠️  Payload decryption failed (HMAC mismatch)" << std::endl;
                 }
@@ -160,7 +160,7 @@ static inline void ProcessFeatureAndVerify(
             break;
         }
 
-        std::cout << "✅ Feature extracted for Track ID " << selectedID << std::endl;
+        std::cout << "Feature extracted for Track ID " << selectedID << std::endl;
         std::cout << "  Feature (first 5): ";
         for (int k = 0; k < 5; k++) {
             std::cout << feature[k] << " ";

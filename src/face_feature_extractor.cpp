@@ -42,7 +42,7 @@ FaceFeatureExtractor::FaceFeatureExtractor(
     feature_dim_ = (int)CVI_NN_TensorCount(&arc_out_[0]);
     
     model_loaded_ = true;
-    std::cout << "✅ ArcFace TPU model loaded successfully" << std::endl;
+    std::cout << "ArcFace TPU model loaded successfully" << std::endl;
     std::cout << "   - Path: " << cvimodel_path << std::endl;
     std::cout << "   - Input: " << face_w_ << "x" << face_h_ << std::endl;
     std::cout << "   - Feature dim: " << feature_dim_ << std::endl;

@@ -104,7 +104,7 @@ static inline void HandleLongPress(TDLHandler_t *pstHandler) {
                     
                     if (person_id > 0) {
                         std::cout << "=== Face Registered (BioHash v2) ===" << std::endl;
-                        std::cout << "✅ Person added to " 
+                        std::cout << "Person added to " 
                                   << (registered_remote ? "RPi" : "local") << " database!" << std::endl;
                         std::cout << "ID: " << person_id << std::endl;
                         std::cout << "Name: " << name << std::endl;

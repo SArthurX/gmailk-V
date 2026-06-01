@@ -50,7 +50,7 @@ static inline void ProcessPendingRegistration(TDLHandler_t *pstHandler) {
     UNLOCK_COMPLETED_TASK_MUTEX();
 
     if (result.success) {
-        std::cout << "✅ [TDL] BioHash generated for " << pendingTask.name
+        std::cout << "[TDL] BioHash generated for " << pendingTask.name
                   << " (" << hex_template.size() / 2 << " bytes)" << std::endl;
     } else {
         std::cerr << "❌ [TDL] Failed to process image for " << pendingTask.name << std::endl;

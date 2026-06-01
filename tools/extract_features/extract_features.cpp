@@ -174,7 +174,7 @@ int main(int argc, char* argv[]) {
                 ofs << "]";
                 first_entry = false;
                 success_count++;
-                std::cout << "  ✅ Extracted 512-D feature" << std::endl;
+                std::cout << "  Extracted 512-D feature" << std::endl;
             } else {
                 std::cerr << "  ❌ Failed to extract feature" << std::endl;
             }

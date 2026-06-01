@@ -213,7 +213,7 @@ int FaceDatabase_Verify(FaceDatabase_t* database, const std::vector<float>& feat
     error_count = best_errors;
     
     std::cout << "  Person [" << match_person->id << "] " 
-              << match_person->name << ": ✅ MATCH (errors=" << best_errors 
+              << match_person->name << ": MATCH (errors=" << best_errors 
               << ", seed=" << matching_seed << ")" << std::endl;
     return 0;
   }

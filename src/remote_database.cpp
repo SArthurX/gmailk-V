@@ -29,7 +29,7 @@ int RemoteDatabase_Init(RemoteDatabase_t* db, const char* base_url) {
 
     // 嘗試初始連線
     if (RemoteDatabase_CheckConnection(db)) {
-        std::cout << "RemoteDatabase: ✅ RPi server reachable" << std::endl;
+        std::cout << "RemoteDatabase: RPi server reachable" << std::endl;
     } else {
         std::cerr << "RemoteDatabase: ⚠️  RPi server not reachable (will retry later)" << std::endl;
     }
@@ -192,7 +192,7 @@ int RemoteDatabase_CreatePerson(RemoteDatabase_t* db, const char* name,
         // 使快取失效（新增了人員）
         db->cache_valid = false;
 
-        std::cout << "RemoteDatabase: ✅ Person registered on RPi [" << new_id 
+        std::cout << "RemoteDatabase: Person registered on RPi [" << new_id 
                   << "] " << name << std::endl;
         return new_id;
 
@@ -346,7 +346,7 @@ int RemoteDatabase_CompletePerson(RemoteDatabase_t* db, int id, const std::strin
 
         db->cache_valid = false; // 使快取失效，以便能夠拉取新完成的模板
 
-        std::cout << "RemoteDatabase: ✅ Completed remote registration for ID: " << id << std::endl;
+        std::cout << "RemoteDatabase: Completed remote registration for ID: " << id << std::endl;
         return 0;
 
     } catch (const std::exception& e) {
