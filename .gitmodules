@@ -4,3 +4,6 @@
 [submodule "tools/host-tools"]
 	path = tools/host-tools
 	url = https://github.com/milkv-duo/host-tools.git
+[submodule "gmailk-VVeb"]
+	path = gmailk-VVeb
+	url = https://github.com/SArthurX/gmailk-VVeb.git
