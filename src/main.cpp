@@ -48,11 +48,11 @@ int main(int argc, char *argv[]) {
       // If --oled is in position 2, arcface path might be wrong
       if (i == 2) arcfaceCvimodel = nullptr;
     } else if (std::string(argv[i]) == "--rpi") {
-      // --rpi [url] : 預設 http://192.168.42.1:3000
+      // --rpi [url] : 預設 http://192.168.42.2:3000
       if (i + 1 < argc && argv[i+1][0] != '-') {
         rpi_url = argv[++i];
       } else {
-        rpi_url = "http://192.168.42.1:3000";
+        rpi_url = "http://192.168.42.2:3000";
       }
       // If --rpi is in position 2, arcface path might be wrong
       if (i == 2 || (i == 3 && rpi_url == argv[i])) arcfaceCvimodel = nullptr;

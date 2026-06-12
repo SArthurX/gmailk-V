@@ -1,6 +1,6 @@
 # gmailk-V
 
-[English](#english) | [中文](#chinese) | [Project Status](docs/PROJECT_STATUS.md) | [Quick Start](QUICKSTART.md)
+[English](#english) | [中文](#chinese) | [System Architecture](docs/SYSTEM_ARCHITECTURE.md) | [Quick Start](QUICKSTART.md)
 
 ---
 
@@ -22,7 +22,7 @@ Additionally, the system features seamless integration with a **Raspberry Pi Fas
 *   🔐 **Fuzzy Commitment v3 (Privacy-Preserving)** — 
     *   **2048-Dim Projection**: ArcFace features are projected using a $2048 \times 512$ pseudo-random matrix (4x dimension expansion).
     *   **Reliable Bit Selection**: The 511 most stable projection bits are selected as the face fingerprint ($B$).
-    *   **Secure Sketch**: A 128-bit random key $K$ is generated and encoded using BCH ($GF(2^9), n=511, t=42$). The sketch $\delta = B \oplus \text{BCH\_encode}(K)$ hides both $K$ and $B$, eliminating standard Systematic BCH plaintext leakage.
+    *   **Secure Sketch**: A 128-bit random key $K$ is generated and encoded using BCH ($GF(2^9), n=511, t=42$). The sketch $\delta = B \oplus \text{BCH-encode}(K)$ hides both $K$ and $B$, eliminating standard Systematic BCH plaintext leakage.
     *   **Payload Encryption**: User metadata is encrypted using AES-128-CTR and verified using HMAC-SHA256 (Encrypt-then-MAC) with key $K$.
     *   **Stateless Auto-Expiration**: Time-based seeds (`YYYYMMDDHHmm`) automatically revoke templates after ~1 month.
 *   🍓 **Raspberry Pi Remote Database** —
@@ -96,11 +96,9 @@ gmailk-V/
 │       └── uploads/            # Location for uploaded registration photos
 │
 ├── docs/                       # Project Documentation
-│   ├── PROJECT_STATUS.md       # Overall status and feature tracker
-│   ├── RPI_ARCHITECTURE.md     # RPi interaction API and CDC-NCM configuration
-│   ├── FACE_DERIVED_KEY_CONCEPT.md # Cryptographic Fuzzy Commitment design details
-│   ├── BCH_QUANTITATIVE_ANALYSIS.md # Parameter evaluation and EER optimization
-│   └── FACE_RECOGNITION_DEBUG.md # Debug notes for TPU and memory leakage
+│   ├── SYSTEM_ARCHITECTURE.md  # Overall system architecture, threads and hardware wiring
+│   ├── CRYPTOGRAPHY_DESIGN.md   # BioHash, BCH codes, and Fuzzy Commitment v3 cryptography
+│   └── REMOTE_DB_INTEGRATION.md # RPi remote database, REST API specs, and async queues
 │
 ├── common/                     # Shared C middleware and sample utilities
 ├── lib/                        # Pre-compiled platform libraries (OpenCV, Media SDK, TDL SDK)
@@ -201,11 +199,11 @@ Once deployed to the CV181X board:
 # 3. Detection + TPU Recognition + Waveshare 1.51" SPI OLED
 ./main models/scrfd_det_face_432_768_INT8_cv181x.cvimodel models/arcface_cv181x_int8_sym.cvimodel --oled
 
-# 4. Detection + TPU Recognition + SPI OLED + RPi Remote Database (Default URL: http://192.168.42.1:3000)
+# 4. Detection + TPU Recognition + SPI OLED + RPi Remote Database (Default URL: http://192.168.42.2:3000)
 ./main models/scrfd_det_face_432_768_INT8_cv181x.cvimodel models/arcface_cv181x_int8_sym.cvimodel --oled --rpi
 
 # 5. Connect to a custom RPi endpoint URL
-./main models/scrfd_det_face_432_768_INT8_cv181x.cvimodel models/arcface_cv181x_int8_sym.cvimodel --oled --rpi http://192.168.42.1:8000
+./main models/scrfd_det_face_432_768_INT8_cv181x.cvimodel models/arcface_cv181x_int8_sym.cvimodel --oled --rpi http://192.168.42.2:8000
 ```
 
 To view the RTSP stream overlay:

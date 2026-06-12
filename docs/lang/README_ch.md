@@ -1,6 +1,6 @@
 # gmailk-V 中文專案說明文件
 
-[English](../../README.md) | [中文](#) | [專案全景狀態](../PROJECT_STATUS.md) | [快速使用指南](../../QUICKSTART.md)
+[English](../../README.md) | [中文](#) | [系統架構與專案全景](../SYSTEM_ARCHITECTURE.md) | [快速使用指南](../../QUICKSTART.md)
 
 ---
 
@@ -19,7 +19,7 @@
 *   🔐 **Fuzzy Commitment v3 隱私保護** — 
     *   **2048 維投影**：ArcFace 512 維特徵與 $2048 \times 512$ 的偽隨機矩陣相乘（4 倍維度擴展），以確保特徵穩定性。
     *   **可靠位元選擇**：挑選投影後最穩定的 511 個位元作為人臉指紋（$B$）。
-    *   **安全 Sketch (草案)**：產生 128-bit 隨機金鑰 $K$，並使用 BCH ($GF(2^9), n=511, t=42$) 編碼。Sketch $\delta = B \oplus \text{BCH\_encode}(K)$ 全域遮蔽了 $K$ 與 $B$，完全解決了傳統 Systematic BCH 明文校驗碼洩漏人臉指紋的漏洞。
+    *   **安全 Sketch (草案)**：產生 128-bit 隨機金鑰 $K$，並使用 BCH ($GF(2^9), n=511, t=42$) 編碼。Sketch $\delta = B \oplus \text{BCH-encode}(K)$ 全域遮蔽了 $K$ 與 $B$，完全解決了傳統 Systematic BCH 明文校驗碼洩漏人臉指紋的漏洞。
     *   **加密酬載**：使用金鑰 $K$ 透過 AES-128-CTR + HMAC-SHA256（Encrypt-then-MAC）加密使用者詳細資料，只有正確的人臉才能恢復 $K$ 並解密。
     *   **無狀態自動過期**：基於時間的種子（`YYYYMMDDHHmm`）讓模板在約 1 個月後自動過期失效。
 *   🍓 **樹莓派遠端資料庫** —
@@ -93,11 +93,9 @@ gmailk-V/
 │       └── uploads/            # 用戶上傳註冊照片儲存目錄
 │
 ├── docs/                       # 專案設計文件
-│   ├── PROJECT_STATUS.md       # 專案全景與功能進度狀態
-│   ├── RPI_ARCHITECTURE.md     # 樹莓派 API 設計與網路 CDC-NCM 設定
-│   ├── FACE_DERIVED_KEY_CONCEPT.md # 密碼學 Fuzzy Commitment 設計細節
-│   ├── BCH_QUANTITATIVE_ANALYSIS.md # 糾錯碼量化分析與最佳平衡點 EER 評估
-│   └── FACE_RECOGNITION_DEBUG.md # TPU 人臉追蹤與記憶體洩漏偵測紀錄
+│   ├── SYSTEM_ARCHITECTURE.md  # 系統架構、執行緒協作與硬體接線說明
+│   ├── CRYPTOGRAPHY_DESIGN.md   # BioHash, BCH 糾錯碼與 Fuzzy Commitment v3 密碼學設計
+│   └── REMOTE_DB_INTEGRATION.md # 樹莓派遠端資料庫, REST API 與異步佇列
 │
 ├── common/                     # 共享 C 中間件與示例工具
 ├── lib/                        # 預編譯的平台庫 (OpenCV, Media SDK, TDL SDK)
@@ -198,11 +196,11 @@ graph TB
 # 3. 啟用檢測、辨識，並輸出至 1.51" 透明 SPI OLED
 ./main models/scrfd_det_face_432_768_INT8_cv181x.cvimodel models/arcface_cv181x_int8_sym.cvimodel --oled
 
-# 4. 啟用檢測、辨識、SPI OLED，並同步樹莓派遠端資料庫（預設連線 URL: http://192.168.42.1:3000）
+# 4. 啟用檢測、辨識、SPI OLED，並同步樹莓派遠端資料庫（預設連線 URL: http://192.168.42.2:3000）
 ./main models/scrfd_det_face_432_768_INT8_cv181x.cvimodel models/arcface_cv181x_int8_sym.cvimodel --oled --rpi
 
 # 5. 連接自訂 IP 的樹莓派伺服器
-./main models/scrfd_det_face_432_768_INT8_cv181x.cvimodel models/arcface_cv181x_int8_sym.cvimodel --oled --rpi http://192.168.42.1:8000
+./main models/scrfd_det_face_432_768_INT8_cv181x.cvimodel models/arcface_cv181x_int8_sym.cvimodel --oled --rpi http://192.168.42.2:8000
 ```
 
 觀看即時 RTSP 畫面：

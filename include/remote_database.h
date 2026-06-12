@@ -17,7 +17,7 @@ typedef struct {
 
 // 遠端資料庫處理器（RPi HTTP Client）
 typedef struct {
-    std::string base_url;       // e.g. "http://192.168.42.1:8787"
+    std::string base_url;       // e.g. "http://192.168.42.2:8787"
     bool initialized;
     bool connected;             // 最近一次連線是否成功
     
@@ -31,7 +31,7 @@ typedef struct {
 /**
  * @brief 初始化遠端資料庫
  * @param db 遠端資料庫處理器
- * @param base_url RPi Server 的 base URL (e.g. "http://192.168.42.1:3000")
+ * @param base_url RPi Server 的 base URL (e.g. "http://192.168.42.2:3000")
  * @return 0 成功，-1 失敗
  */
 int RemoteDatabase_Init(RemoteDatabase_t* db, const char* base_url);
