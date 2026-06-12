@@ -43,6 +43,7 @@ function:
 
 
 void OLED_1in51_Init(void);
+int  OLED_1in51_InitWithRetry(int max_retries);
 void OLED_1in51_Clear(void);
 void OLED_1in51_Display(UBYTE *Image);
 

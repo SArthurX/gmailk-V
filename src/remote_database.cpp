@@ -23,7 +23,7 @@ int RemoteDatabase_Init(RemoteDatabase_t* db, const char* base_url) {
     db->cached_templates.clear();
     db->cache_valid = false;
     db->cache_time = 0;
-    db->cache_ttl_seconds = 30;  // 30 秒快取過期
+    db->cache_ttl_seconds = 10;  // 10 秒快取過期
 
     std::cout << "RemoteDatabase: Initialized with server " << base_url << std::endl;
 

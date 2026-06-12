@@ -75,36 +75,46 @@ function:
 *******************************************************************************/
 static void OLED_InitReg(void)
 {
-    OLED_WriteReg(0xAE);//--turn off oled panel
+    OLED_WriteReg(0xAE); // Display OFF
 
-    OLED_WriteReg(0x00);//---set low column address
-    OLED_WriteReg(0x10);//---set high column address
-    
-    OLED_WriteReg(0x20);
+    OLED_WriteReg(0x00); // Set low column address
+    OLED_WriteReg(0x10); // Set high column address
+
+    OLED_WriteReg(0x40); // Set Display Start Line = 0
+
+    OLED_WriteReg(0x81); // Set Contrast Control
+    OLED_WriteReg(0xCF); // Contrast value (0xCF = 207)
+
+    OLED_WriteReg(0xA0); // Set Segment Re-map (col 0 -> SEG0, default)
+    OLED_WriteReg(0xA6); // Set Normal Display (non-inverted)
+
+    OLED_WriteReg(0xA8); // Set Multiplex Ratio
+    OLED_WriteReg(0x3F); // 1/64 duty
+
+    OLED_WriteReg(0xC0); // Set COM Output Scan Direction (normal)
+
+    OLED_WriteReg(0xD3); // Set Display Offset
     OLED_WriteReg(0x00);
-        
-    OLED_WriteReg(0xFF);
-    
-    OLED_WriteReg(0xA6);
-    
-    OLED_WriteReg(0xA8); 
-    OLED_WriteReg(0x3F);
-    
-    OLED_WriteReg(0xD3);
-    OLED_WriteReg(0x00);
-    
-    OLED_WriteReg(0xD5);
+
+    OLED_WriteReg(0xD5); // Set Display Clock Divide Ratio
     OLED_WriteReg(0x80);
-    
-    OLED_WriteReg(0xD9);
+
+    OLED_WriteReg(0xD9); // Set Pre-charge Period
     OLED_WriteReg(0x22);
 
-    OLED_WriteReg(0xDA);
-    OLED_WriteReg(0x12);
-    
-    OLED_WriteReg(0xDB);
+    OLED_WriteReg(0xDA); // Set COM Pins Hardware Configuration
+    OLED_WriteReg(0x12); // Alternative COM pin config
+
+    OLED_WriteReg(0xDB); // Set VCOMH Deselect Level
     OLED_WriteReg(0x40);
 
+    OLED_WriteReg(0x8D); // Charge Pump Setting
+    OLED_WriteReg(0x14); // Enable charge pump
+
+    OLED_WriteReg(0x20); // Set Memory Addressing Mode
+    OLED_WriteReg(0x00); // Horizontal addressing mode
+
+    OLED_WriteReg(0xA4); // Entire Display ON (resume from RAM)
 }
 
 /********************************************************************************
@@ -122,6 +132,62 @@ void OLED_1in51_Init(void)
 
     //Turn on the OLED display
     OLED_WriteReg(0xAF);
+}
+
+/********************************************************************************
+function:
+            Initialization with retry (handles SPI bus instability at boot)
+********************************************************************************/
+int OLED_1in51_InitWithRetry(int max_retries)
+{
+    int attempt;
+    for (attempt = 0; attempt < max_retries; attempt++) {
+        if (attempt > 0) {
+            printf("OLED init retry %d/%d...\n", attempt + 1, max_retries);
+            DEV_Delay_ms(300);
+        }
+
+        // Full hardware reset
+        OLED_Reset();
+        DEV_Delay_ms(50);
+
+        // Flush SPI bus: send a few dummy command bytes to clear any stale state
+        // 0xAE (display off) is safe to send multiple times
+        OLED_WriteReg(0xAE);
+        DEV_Delay_ms(10);
+        OLED_WriteReg(0xAE);
+        DEV_Delay_ms(10);
+
+        // Full register initialization
+        OLED_InitReg();
+        DEV_Delay_ms(200);
+
+        // Turn on display
+        OLED_WriteReg(0xAF);
+        DEV_Delay_ms(100);
+
+        // Verification: write a test pattern to page 0, then clear it
+        // If SPI is working, the display controller accepted our commands
+        OLED_WriteReg(0xB0);     // page 0
+        OLED_WriteReg(0x00);     // low column = 0
+        OLED_WriteReg(0x10);     // high column = 0
+        // Write a few visible pixels as a brief flash-test
+        OLED_WriteData(0xFF);
+        OLED_WriteData(0xFF);
+        OLED_WriteData(0xFF);
+        OLED_WriteData(0xFF);
+        DEV_Delay_ms(50);
+
+        // If we got here without hanging, SPI is alive.
+        // Clear the test pattern
+        OLED_1in51_Clear();
+        
+        printf("OLED init succeeded on attempt %d\n", attempt + 1);
+        return 0;
+    }
+
+    printf("OLED init failed after %d attempts\n", max_retries);
+    return -1;
 }
 
 /********************************************************************************

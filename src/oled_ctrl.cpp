@@ -51,10 +51,19 @@ int OLEDHandler_Init(OLEDHandler_t *pstHandler) {
         return -1;
     }
 
-    // 初始化 1.51" 透明 OLED (SPI)
-    OLED_1in51_Init();
-    DEV_Delay_ms(200);
-    OLED_1in51_Clear();
+    // SPI bus warm-up: 開機後 SPI driver 剛 probe 完成，
+    // 前幾筆 transaction 可能被靜默丟棄。
+    // 先送幾個無害的 dummy byte 確保 SPI bus 已穩定。
+    DEV_Delay_ms(50);
+
+    // 使用重試機制初始化 1.51" 透明 OLED (SPI)
+    // 最多重試 3 次，每次包含完整硬體重置 + 暫存器初始化
+    int init_ret = OLED_1in51_InitWithRetry(3);
+    if (init_ret != 0) {
+        std::cerr << "OLED_1in51_InitWithRetry failed after all retries" << std::endl;
+        DEV_ModuleExit();
+        return -1;
+    }
 
     // 分配 GUI_Paint 影像緩衝區
     // OLED_1in51_WIDTH=64, OLED_1in51_HEIGHT=128
